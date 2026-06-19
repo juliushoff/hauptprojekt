@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Threat Model — MCP Security KB</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top"><div class="inner">
+  <span class="brand">MCP Security KB</span>
+  <a href="index.html">Overview</a>
+  <a href="threat-model.html" class="active">Threat Model</a>
+  <a href="attack-vectors.html">Attack Vectors</a>
+  <a href="defenses.html">Defenses</a>
+  <a href="benchmarks-and-tools.html">Benchmarks &amp; Tools</a>
+  <a href="gap-analysis.html">Gap Analysis</a>
+  <a href="design-and-scope.html">Design &amp; Scope</a>
+  <a href="build-plan.html">Build Plan</a>
+  <a href="positioning-update.html">Positioning Update</a>
+</div></header>
+
+<div class="wrap">
+
+<h1>Threat Model</h1>
+<p class="lede">Where the trust boundaries are, what an MCP server's life looks like, who the attackers are, and the canonical 16-threat taxonomy. Primary source: Hou et&nbsp;al. (<a href="https://arxiv.org/abs/2503.23278">arXiv:2503.23278</a>).</p>
+
+<h2>Architecture &amp; trust boundaries</h2>
+<pre>
+   User
+    │  prompt
+    ▼
+┌─────────────────────────────────────────────┐
+│  HOST  (Claude Desktop, Cursor, an agent)    │   ← holds OS privileges, secrets, user context
+│   ┌───────────────────────────────────────┐  │
+│   │  CLIENT  (1:1 link per server)         │  │
+│   └───────────────────────────────────────┘  │
+└───────────────│─────────────────────────────┘
+                │  MCP (JSON-RPC over stdio / HTTP+SSE / streamable HTTP)
+   ╔════════════▼════════════╗   ╔═════════════════════════╗
+   ║  SERVER A  (trusted?)   ║   ║  SERVER B  (untrusted!) ║   ← 3rd-party, community-built
+   ║  tools · resources ·    ║   ║  tools · resources ·    ║
+   ║  prompts                ║   ║  prompts                ║
+   ╚════════════│════════════╝   ╚════════════│════════════╝
+                ▼                              ▼
+        External APIs · DB · local files · shell · network
+</pre>
+
+<div class="note danger">
+  <span class="t">The three trust boundaries that matter</span>
+  <strong>1. Server → Model (metadata channel).</strong> Tool names &amp; descriptions are injected into the model's context as authoritative text. Tool <em>poisoning</em>, <em>preference manipulation</em>, and <em>shadowing</em> live here.<br>
+  <strong>2. External data → Model (output channel).</strong> Whatever a tool <em>returns</em> (a GitHub issue, a web page, a DB row) is fed back to the model. <em>Indirect prompt injection</em> lives here.<br>
+  <strong>3. Model/Server → System (execution channel).</strong> The server runs with the host's privileges and no protocol-level isolation. <em>Command injection</em>, <em>sandbox escape</em>, <em>credential theft</em> live here.
+</div>
+
+<h2>The MCP server lifecycle (4 phases, 16 activities)</h2>
+<p>Hou et al. model an MCP server's life as four sequential phases. Crucially, a threat's <strong>origin phase</strong> and its <strong>trigger phase</strong> often differ — e.g. tool poisoning is <em>authored</em> at creation but <em>fires</em> at operation. Reasoning from origin is what tells you whether a static scan can catch it.</p>
+
+<table>
+<thead><tr><th>Phase</th><th>Primary actor</th><th>Key activities</th><th>Security relevance</th></tr></thead>
+<tbody>
+<tr><td><strong>Creation</strong></td><td>Developer</td><td>Metadata definition · capability declaration · code implementation · slash-command definition</td><td>Most vulnerabilities are <em>introduced</em> here. Capability declarations &amp; descriptions are the poisoning surface → highest-yield target for a static scanner.</td></tr>
+<tr><td><strong>Deployment</strong></td><td>Developer → User / Client</td><td>server release · installer · environment setup · tool registration</td><td>Supply-chain &amp; installer-spoofing risks; provenance and signature checks belong here.</td></tr>
+<tr><td><strong>Operation</strong></td><td>User</td><td>intent analysis · external-resource access · tool invocation · session management</td><td>Runtime-only threats: indirect prompt injection, tool-chaining abuse, session/auth attacks. This is the <strong>proxy's</strong> domain.</td></tr>
+<tr><td><strong>Maintenance</strong></td><td>Developer</td><td>version control · configuration change · access audit / logging</td><td>Rug pulls, vulnerable versions, configuration drift, privilege persistence.</td></tr>
+</tbody>
+</table>
+
+<h2>Attacker archetypes</h2>
+<div class="grid">
+  <div class="card"><span class="k">Type 1</span><h3>Malicious Developer</h3><p>Authors a server/tool that is hostile by design — poisoned metadata, typosquatted name, hidden backdoor, or a planned rug pull. Origin: creation.</p></div>
+  <div class="card"><span class="k">Type 2</span><h3>External Attacker</h3><p>No control over the server, but poisons what it <em>touches</em> — a tampered installer, or adversarial content in a data source the tool fetches (indirect prompt injection).</p></div>
+  <div class="card"><span class="k">Type 3</span><h3>Malicious User</h3><p>A legitimate user (or a compromised agent acting as one) abusing tools at runtime — credential theft, sandbox escape, tool-chaining, session hijacking.</p></div>
+  <div class="card"><span class="k">Type 4</span><h3>Security Flaws</h3><p>No active adversary required — latent risk from vulnerable dependency versions, retained privileges, or drifted misconfiguration.</p></div>
+</div>
+
+<h2>The 16-threat taxonomy</h2>
+<p class="muted">Adapted from Table 3 of Hou et al. The "origin" column gives the lifecycle phase where the threat is introduced: <span class="tag phase">(1) Creation</span> <span class="tag phase">(2) Deployment</span> <span class="tag phase">(3) Operation</span> <span class="tag phase">(4) Maintenance</span>. Detectability column previews the <a href="attack-vectors.html">scanner spec</a>.</p>
+
+<table>
+<thead><tr><th>#</th><th>Threat</th><th>Attacker</th><th>Origin</th><th>Consequence</th><th>Detect</th></tr></thead>
+<tbody>
+<tr><td>1</td><td><strong>Namespace Typosquatting</strong></td><td>Malicious Dev</td><td>Metadata def. (1)</td><td>Install of malicious server; supply-chain compromise</td><td><span class="tag static">static</span></td></tr>
+<tr><td>2</td><td><strong>Tool Name Conflict</strong></td><td>Malicious Dev</td><td>Capability decl. (1)</td><td>Ambiguity, wrong-tool execution, privilege escalation</td><td><span class="tag static">static</span></td></tr>
+<tr><td>3</td><td><strong>Preference Manipulation (PMA)</strong></td><td>Malicious Dev</td><td>Capability decl. (1)</td><td>Tool-flow hijacking via persuasive description text</td><td><span class="tag static">static</span></td></tr>
+<tr><td>4</td><td><strong>Tool Poisoning</strong></td><td>Malicious Dev</td><td>Capability decl. (1)</td><td>Hidden instructions executed → data leak, system compromise</td><td><span class="tag static">static</span></td></tr>
+<tr><td>5</td><td><strong>Rug Pulls</strong></td><td>Malicious Dev</td><td>Capability decl. (1) → fires at (4)</td><td>Benign-then-malicious mutation; loss of trust</td><td><span class="tag runtime">runtime</span></td></tr>
+<tr><td>6</td><td><strong>Cross-Server Shadowing</strong></td><td>Malicious Dev</td><td>Capability decl. (1)</td><td>One server overrides another's tool behavior</td><td><span class="tag both">both</span></td></tr>
+<tr><td>7</td><td><strong>Command Injection / Backdoor</strong></td><td>Malicious Dev</td><td>Code impl. (1)</td><td>Arbitrary command execution, RCE</td><td><span class="tag static">static</span></td></tr>
+<tr><td>8</td><td><strong>Installer Spoofing</strong></td><td>External</td><td>Deployment (2)</td><td>Deployment of a compromised server</td><td><span class="tag static">static</span></td></tr>
+<tr><td>9</td><td><strong>Indirect Prompt Injection</strong></td><td>External</td><td>Ext. resource access (3)</td><td>Malicious instructions injected via tool <em>output</em></td><td><span class="tag runtime">runtime</span></td></tr>
+<tr><td>10</td><td><strong>Credential Theft</strong></td><td>Malicious User</td><td>Tool invocation (3)</td><td>Plaintext secrets in config files exfiltrated</td><td><span class="tag both">both</span></td></tr>
+<tr><td>11</td><td><strong>Sandbox Escape</strong></td><td>Malicious User</td><td>Tool invocation (3)</td><td>Escape isolation → host compromise</td><td><span class="tag both">both</span></td></tr>
+<tr><td>12</td><td><strong>Tool Chaining Abuse</strong></td><td>Malicious User</td><td>Tool invocation (3)</td><td>Compose multiple tools for exfiltration/escalation</td><td><span class="tag runtime">runtime</span></td></tr>
+<tr><td>13</td><td><strong>Unauthorized Access</strong></td><td>Malicious User</td><td>Session mgmt (3)</td><td>Session hijacking, user impersonation</td><td><span class="tag runtime">runtime</span></td></tr>
+<tr><td>14</td><td><strong>Vulnerable Versions</strong></td><td>Security Flaw</td><td>Version control (4)</td><td>Known-CVE exploitation, RCE</td><td><span class="tag static">static</span></td></tr>
+<tr><td>15</td><td><strong>Privilege Persistence</strong></td><td>Security Flaw</td><td>Version control (4)</td><td>Retained unauthorized rights, long-term compromise</td><td><span class="tag both">both</span></td></tr>
+<tr><td>16</td><td><strong>Configuration Drift</strong></td><td>Security Flaw</td><td>Config change (4)</td><td>Misconfiguration exposes sensitive services</td><td><span class="tag both">both</span></td></tr>
+</tbody>
+</table>
+<div class="legend">
+  <span><span class="tag static">static</span> detectable by a pre-flight CLI scan (Hauptprojekt)</span>
+  <span><span class="tag runtime">runtime</span> needs the live proxy (Masterarbeit)</span>
+  <span><span class="tag both">both</span> partial static signal, confirmed at runtime</span>
+</div>
+
+<div class="note ok">
+  <span class="t">Takeaway for the scanner design</span>
+  Of the 16 threats, roughly <strong>half carry a strong static signal</strong> (1–4, 7, 8, 14 outright; 6, 10, 11, 15, 16 partially). That is a defensible, well-scoped target for the Hauptprojekt. The remaining runtime-only threats (5, 9, 12, 13) become the justification for the Masterarbeit proxy — your two artifacts cover complementary halves of the same taxonomy, which is a clean thesis narrative.
+</div>
+
+<footer class="foot">
+  Primary source: Hou, Zhao, Wang &amp; Wang, "MCP: Landscape, Security Threats, and Future Research Directions" (<a href="https://arxiv.org/abs/2503.23278">arXiv:2503.23278</a>, v3, Oct 2025). Detectability column is this KB's own analysis, not from the paper.
+</footer>
+
+</div>
+</body>
+</html>

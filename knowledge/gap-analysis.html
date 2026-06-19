@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gap Analysis &amp; Thesis Angle — MCP Security KB</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top"><div class="inner">
+  <span class="brand">MCP Security KB</span>
+  <a href="index.html">Overview</a>
+  <a href="threat-model.html">Threat Model</a>
+  <a href="attack-vectors.html">Attack Vectors</a>
+  <a href="defenses.html">Defenses</a>
+  <a href="benchmarks-and-tools.html">Benchmarks &amp; Tools</a>
+  <a href="gap-analysis.html" class="active">Gap Analysis</a>
+  <a href="design-and-scope.html">Design &amp; Scope</a>
+  <a href="build-plan.html">Build Plan</a>
+  <a href="positioning-update.html">Positioning Update</a>
+</div></header>
+
+<div class="wrap">
+
+<h1>Gap Analysis &amp; Thesis Angle</h1>
+<p class="lede">Grounded validation: seven of the most adjacent papers were read <em>in full</em> (methods + limitations + future work), specifically to check whether the candidate thesis ideas are already taken. Verdict: the behavioral-divergence + capability-contract angle survives; pure ecosystem measurement does not.</p>
+
+<div class="note danger">
+  <span class="t">⚠ Superseded in part — see Positioning Update (2026-06-10)</span>
+  This page's verdict that "behavioral divergence <em>detection</em> is open" no longer holds: <strong>Connor</strong> (<a href="https://arxiv.org/abs/2604.01905">arXiv:2604.01905</a>) now does dynamic behavioral-deviation detection (F1 94.6%), and "Don't believe everything you read" (<a href="https://arxiv.org/abs/2602.03580">2602.03580</a>) does the static version at scale. <strong>Detection is taken; runtime <em>enforcement</em> + drift + cross-server is still open.</strong> Read <strong><a href="positioning-update.html">Positioning Update</a></strong> for the current framing — the contract/proxy architecture below is unchanged, only the headline claim moves.
+</div>
+
+<div class="note">
+  <span class="t">Method (so the claims here are auditable)</span>
+  Full-text reads of: VIPER-MCP (<a href="https://arxiv.org/abs/2605.21392">2605.21392</a>), the "MCPGuard" SoK (<a href="https://arxiv.org/abs/2510.23673">2510.23673</a>), Over-Privilege Auditing / <code>mcp-sec-audit</code> (<a href="https://arxiv.org/abs/2603.21641">2603.21641</a>), MCP Guardian (<a href="https://arxiv.org/abs/2504.12757">2504.12757</a>), MiniScope (<a href="https://arxiv.org/abs/2512.11147">2512.11147</a>), "MCP at First Glance" (<a href="https://arxiv.org/abs/2506.13538">2506.13538</a>), MCP-ITP (<a href="https://arxiv.org/abs/2601.07395">2601.07395</a>). Each was asked the same questions: mechanism, idea-overlap, evaluation, stated limitations, and a per-direction verdict.
+</div>
+
+<h2>Near-neighbor map: who has which half</h2>
+<p>The recommended thesis = <strong>behavioral scanner → capability contract → runtime enforcement</strong>. The key finding: every neighbor owns <em>one</em> piece and explicitly leaves the rest open. Nobody connects them, and nobody checks behavior against a tool's <em>own declared semantics</em>.</p>
+
+<table>
+<thead><tr><th>Paper</th><th>What it has</th><th>What it lacks (its own words)</th><th>Your differentiator</th></tr></thead>
+<tbody>
+<tr>
+  <td><strong>VIPER-MCP</strong> <span class="id">2605.21392</span></td>
+  <td>Static CodeQL taint analysis + LLM-driven fuzzing that <em>confirms</em> a taint path is exploitable. Scanned <strong>39,884 repos</strong> → 106 0-days.</td>
+  <td>Only 3 taint classes (CMDi/SSRF/path), JS+Py only; runtime is a one-shot exploit oracle, <em>not</em> a monitor; no contract, no enforcement; "logic vulns, auth bypass, info disclosure" = future work.</td>
+  <td>You check description-vs-behavior <em>divergence</em> (not code-level taint), emit an enforceable contract, and deploy the runtime side as a monitor.</td>
+</tr>
+<tr>
+  <td><strong>mcp-sec-audit</strong> <span class="id">2603.21641</span><br><span class="muted">(closest neighbor)</span></td>
+  <td>Static regex + <strong>eBPF/Docker sandbox</strong> that captures real syscalls and extracts "capability evidence" to score risk. The dynamic-execution machinery you'd need exists.</td>
+  <td>Matches behavior against a generic capability rulebook, <strong>not the tool's own declared schema/description</strong>; "does not validate runtime behavior against semantic constraints"; emits a <em>report</em>, not an enforceable contract; no runtime continuity (CI/CD enforcement = future work); ~45 servers only.</td>
+  <td>Divergence is defined <em>relative to what the tool claims</em>; you emit a machine-readable contract and enforce it. Cite this as the technique baseline; your novelty is the framing + the loop.</td>
+</tr>
+<tr>
+  <td><strong>MiniScope</strong> <span class="id">2512.11147</span></td>
+  <td>Derives least-privilege scopes + a runtime interception layer that enforces them per tool call (1–6% overhead). The enforcement half, working.</td>
+  <td>Scopes come from <strong>vendor OAuth docs</strong> (declaration-based, coarse), never from behavior; <strong>explicitly assumes "services honestly implement specs"</strong>; no behavioral scanner; small eval.</td>
+  <td>You <em>verify</em> the exact assumption MiniScope must make. Your contract is behavior-derived and fine-grained, not doc-derived.</td>
+</tr>
+<tr>
+  <td><strong>MCP Guardian</strong> <span class="id">2504.12757</span></td>
+  <td>A working MCP proxy: auth, rate-limit, regex WAF, logging at a single intercept point (~3–4 ms overhead).</td>
+  <td>Enforcement is generic/hardcoded, not driven by any scan or contract; "<strong>cannot protect against a compromised server or malicious code in the tool itself</strong>"; one toy server eval.</td>
+  <td>Your proxy is contract-driven and detects the exact thing Guardian can't: a tool behaving outside its declared envelope.</td>
+</tr>
+<tr>
+  <td><strong>MCP-ITP</strong> <span class="id">2601.07395</span></td>
+  <td>Implicit poisoning that drives a <em>legitimate</em> high-privilege tool to act against user intent. Defeats static description scanners → <strong>MDR 0.3%</strong>.</td>
+  <td>Proposes <em>no</em> defense; the malice is an <strong>observable runtime signature</strong> (read-request → write_file on an SSH key) that static scanning structurally cannot see.</td>
+  <td>This is your motivating example: it proves static fails and behavior is where the signal is. Intent-consistency monitoring is the answer it leaves open.</td>
+</tr>
+<tr>
+  <td><strong>MCP at First Glance</strong> <span class="id">2506.13538</span></td>
+  <td>Ecosystem measurement: <strong>1,899 servers</strong>, SonarQube + <code>mcp-scan</code>; 7.2% vulnerable, 5.5% tool poisoning.</td>
+  <td><code>mcp-scan</code> only reads reflected metadata ("does not inspect execution behavior"); dynamic run on just 83 servers ("infeasible at scale"); one vuln class; no over-privilege/temporal/cross-server breakdown.</td>
+  <td>A measurement that actually <em>executes</em> servers (your behavioral scanner) is the explicit open lens.</td>
+</tr>
+<tr>
+  <td><strong>"MCPGuard" SoK</strong> <span class="id">2510.23673</span></td>
+  <td>Nothing built — it is a <strong>survey</strong>, despite the name. Useful taxonomy + motivation only.</td>
+  <td>No artifact, no measurement, no evaluation.</td>
+  <td>Cite as related-work framing; it pre-empts nothing.</td>
+</tr>
+</tbody>
+</table>
+
+<h2>Runtime-side near-neighbors (second validation round)</h2>
+<p>The static side was validated first; this round read the closest <em>runtime / proxy / verification</em> papers in full to pressure-test the Masterarbeit half — "is a contract-grounded MCP tool-call monitor (with a small LLM + intent-consistency) already built?" Answer: no. Every neighbor is adjacent and leaves the core open.</p>
+
+<div class="note ok">
+  <span class="t">The strongest signal: competitors name our two pillars as their own future work</span>
+  <ul>
+    <li><strong>AEGIS</strong> (<a href="https://arxiv.org/abs/2603.12621">2603.12621</a>) — future work: "reasoning-chain verification (CoT-vs-tool-call consistency)" + "learning-based behavioral profiling".</li>
+    <li><strong>SentinelAgent</strong> (<a href="https://arxiv.org/abs/2604.02767">2604.02767</a>) — concedes "P6 cannot catch malicious use of permitted APIs"; calls semantic-content validation "an open problem".</li>
+    <li><strong>Prompt-CFI</strong> (<a href="https://arxiv.org/abs/2603.18433">2603.18433</a>) — names "tool-calling chains and agentic workflows" as the gap it doesn't cover.</li>
+    <li><strong>MCPSHIELD</strong> (<a href="https://arxiv.org/abs/2604.05969">2604.05969</a>) — open Challenge #2: "formal specifications of tool behavior + runtime behavioral monitoring".</li>
+  </ul>
+  Four independent papers point at the exact artifact this thesis builds. That is quotable in the introduction.
+</div>
+
+<table>
+<thead><tr><th>Paper</th><th>What it has</th><th>What it lacks</th><th>Your differentiator</th></tr></thead>
+<tbody>
+<tr>
+  <td><strong>AEGIS</strong> <span class="id">2603.12621</span><br><span class="muted">(closest runtime)</span></td>
+  <td>Pre-execution firewall intercepting <code>tool_use</code> before side effects; deterministic regex + JSON-Schema policies; tamper-evident audit trail. <strong>100% block / 48 known attacks, 1.2% FP, 8.3 ms.</strong></td>
+  <td>Policies are <strong>hand-authored &amp; tool-agnostic</strong>, not derived per-tool; no claim-vs-actual divergence; no intent check; not MCP-specific; "may miss unseen variants".</td>
+  <td>You auto-<em>derive</em> the per-tool contract and check divergence + intent — AEGIS's stated future work.</td>
+</tr>
+<tr>
+  <td><strong>SentinelAgent</strong> <span class="id">2604.02767</span></td>
+  <td>Intent-preservation across multi-agent <em>delegation chains</em> via a small NLI model (328 MB) + signed delegation tokens. 100% TPR @0% FPR on DelegationBench.</td>
+  <td>"Intent" = entailment of a subtask vs the <em>root</em> goal per delegation hop, <strong>not per-tool-call action-vs-request</strong>; manifests are scope-authored; degrades to <strong>13% TPR under paraphrasing</strong>; multi-agent/federal, not MCP.</td>
+  <td>Your intent check is at the <em>individual tool call</em> ("does this call match this user request") — the per-call semantic validation it calls an open problem.</td>
+</tr>
+<tr>
+  <td><strong>Prompt-CFI</strong> <span class="id">2603.18433</span></td>
+  <td>Deterministic API-boundary gateway enforcing an instruction-priority / provenance lattice on prompt text. <strong>APR 0% / FPR 0% / 0.04 ms.</strong></td>
+  <td>Operates on prompt <em>text</em>, not tool/MCP calls; no per-tool contract; no intent; brittle to paraphrase; generic LLM/RAG.</td>
+  <td><strong>Reuse</strong> its instruction-priority primitive inside the contract (untrusted-source segments may not trigger privileged capabilities).</td>
+</tr>
+<tr>
+  <td><strong>MCPSHIELD</strong> <span class="id">2604.05969</span></td>
+  <td>Formal model (LTS + security lattice), capability tuple <code>c=(t,params,scope,ttl,σ)</code>, 4 security properties + decidability results, 4-layer reference architecture.</td>
+  <td><strong>Not implemented or evaluated</strong> (authors' own Limitation 1); capability = authority token, not behavior-derived; semantic integrity is an open challenge.</td>
+  <td><strong>Cite as the formal backbone</strong>; your system is the implemented, evaluated instance it calls for.</td>
+</tr>
+<tr>
+  <td><strong>Caging the Agents</strong> <span class="id">2603.17419</span></td>
+  <td>Zero-trust infra containment (gVisor, egress allow-lists, credential proxy); 90-day production study.</td>
+  <td>Per-agent-<em>role</em> hand-authored policies; no derived per-tool contract; no divergence/intent; no MCP; calls prompt-level defenses "the most brittle".</td>
+  <td>Cite for zero-trust framing + the "prompt defenses are brittle" evidence that motivates a deterministic contract spine.</td>
+</tr>
+<tr>
+  <td><strong>Runtime Arch Patterns</strong> <span class="id">2605.20173</span></td>
+  <td>Formalizes the "stochastic-deterministic boundary" (proposer/verifier/commit/reject) as a first-class object; pattern catalog.</td>
+  <td>Reliability-engineering, not security; no per-tool contract, no intent, no MCP; conceptual.</td>
+  <td><strong>Cite for the architecture framing</strong>; your contribution is the security-specific, MCP, behavior-derived instance.</td>
+</tr>
+<tr>
+  <td><strong>IPI-Proxy</strong> <span class="id">2605.11868</span></td>
+  <td>mitmproxy that <em>injects</em> indirect-prompt-injection payloads to red-team agents.</td>
+  <td>Offensive, "not itself a defense"; no detection/contract/intent.</td>
+  <td>Use as an <strong>attack generator</strong> in your evaluation harness; it even wants tool-call/exfil correlation (your observability).</td>
+</tr>
+</tbody>
+</table>
+
+<div class="note">
+  <span class="t">Design, now evidence-backed: deterministic spine + small LLM on top</span>
+  Deterministic contract checks are fast and near-perfect on what they cover but blind to novelty (AEGIS 100%/8.3 ms but misses unseen; PCFI 0% APR/0.04 ms but brittle to paraphrase). A small model covers the semantic/intent gap but is fragile alone (SentinelAgent's NLI: great → 13% TPR under paraphrase). Therefore: <strong>the contract is enforced deterministically; the small LLM/NLI is a secondary signal only for divergence severity and intent-consistency</strong> — never the gate. This is the "stochastic-deterministic boundary" of 2605.20173 applied to security.
+</div>
+
+<h2>Verdict on the three candidate directions</h2>
+<div class="grid">
+  <div class="card"><span class="k" style="color:var(--ok)">OPEN ✓</span><h3>B — Behavioral divergence</h3><p>"Does the tool actually do what its description/schema claims?" Every neighbor leaves this open; mcp-sec-audit explicitly declines it; MiniScope <em>assumes</em> it; MCP-ITP proves static can't do it. <strong>Strongest standalone gap.</strong></p></div>
+  <div class="card"><span class="k" style="color:var(--ok)">OPEN ✓</span><h3>B+A — Contract + enforcement</h3><p>Scan→contract→enforce as one loop is unbuilt. MiniScope has enforcement (doc-derived), Guardian has a generic proxy, mcp-sec-audit emits a report. Nobody emits a <em>behavior-derived</em> contract and enforces it. <strong>Best HP/MA split.</strong></p></div>
+  <div class="card"><span class="k" style="color:var(--warn)">CROWDED ⚠</span><h3>E — Ecosystem measurement</h3><p>VIPER-MCP (39,884) + First Glance (1,899) own the static-prevalence space. Survives <em>only</em> as a novel-lens slice (behavioral/dynamic prevalence) — i.e. a <strong>scale-up evaluation of B</strong>, not the headline.</p></div>
+</div>
+
+<h2>Recommended thesis: Behavioral Capability Contracts for MCP Tools</h2>
+<p>One coherent idea that absorbs B, B+A, and the surviving slice of E, differentiates cleanly from every neighbor, and answers the survey's own §6.2 gaps (missing monitoring; "config drift / payload corruption undetected until after exploitation"; no runtime sandboxing).</p>
+
+<div class="note ok">
+  <span class="t">Hauptprojekt — the behavioral scanner (CLI)</span>
+  Execute each MCP tool in an instrumented sandbox with probe inputs; observe actual behavior (network / filesystem / process-exec / data-flow). Turn the tool's <em>declared</em> semantics (description + JSON schema) into an <em>expected</em> capability set, and report <strong>divergence</strong>: a "calculator" that opens a socket, a "read" tool that writes, undeclared egress. Emit a machine-readable <strong>capability contract</strong> (the allowed behavioral envelope + a pinned manifest/code hash). Original character without needing large results — a divergence demo on a handful of poisoned vs. benign servers is enough.
+</div>
+<div class="note">
+  <span class="t">Masterarbeit — the enforcing proxy + drift + intent</span>
+  A runtime proxy that (1) <strong>enforces</strong> the contract on live calls (block out-of-envelope behavior), (2) detects <strong>drift / rug-pulls</strong> (behavior diverging from the pinned contract over time), and (3) adds <strong>intent-consistency</strong> checks that catch MCP-ITP-style implicit poisoning (a legit high-privilege tool invoked against the user's request). Empirical eval: detection on <strong>MCPTox</strong> + <strong>MSB</strong> + the implicit-poisoning subset where static scanners hit 0.3%; utility/regression on <strong>MCP-Universe</strong>; report an <strong>NRP</strong>-style security/utility trade-off; plus a behavioral-prevalence scan of a public-server sample (the open slice of E).
+</div>
+
+<h3>One-line differentiators (for your related-work section)</h3>
+<ul>
+  <li><strong>vs mcp-sec-audit:</strong> divergence is defined against the tool's <em>own declared semantics</em>, and the output is an <em>enforceable contract</em>, not a risk report.</li>
+  <li><strong>vs MiniScope:</strong> the contract is <em>behavior-derived and fine-grained</em>, and you <em>verify</em> the "tools honor their specs" assumption MiniScope is forced to trust.</li>
+  <li><strong>vs MCP Guardian:</strong> enforcement is <em>contract-driven</em> and catches a compromised/poisoned tool — the case Guardian states it cannot handle.</li>
+  <li><strong>vs VIPER-MCP:</strong> you target <em>semantic divergence</em> (incl. logic/over-privilege) and a <em>deployed</em> monitor, not code-level taint with a one-shot exploit oracle.</li>
+</ul>
+
+<div class="note danger">
+  <span class="t">Honest risks to scope around</span>
+  <strong>(1) Sandboxing real tools is the hard part</strong> — tools needing live credentials or external services break naive harnesses (VIPER and mcp-sec-audit both hit this). Plan for mocking / recorded-dependency / containerized fixtures; solving it cleanly is itself a contribution. <strong>(2) "Declared semantics" from NL is fuzzy</strong> — turning a description into an expected-capability set likely needs an LLM, which reintroduces the <a href="defenses.html">Firewall Fallacy</a> risk; mitigate by anchoring on the structured schema + observed behavior and treating the LLM as one signal, not the gate. <strong>(3) Coverage</strong> — probe inputs may not trigger conditional malicious branches (rug-pulls keyed on time/flags); be explicit that the proxy's continuous monitoring is what closes this, and don't over-claim static coverage.
+</div>
+
+<footer class="foot">
+  Verdicts derived from full-text reads of the seven cited papers (2026-05-31). Before committing, confirm released code/datasets for MSB and re-check arXiv for anything newer than these — the field adds papers monthly.
+</footer>
+
+</div>
+</body>
+</html>

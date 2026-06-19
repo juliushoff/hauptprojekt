@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Positioning Update — Connor &amp; the Pivot to Runtime Enforcement — MCP Security KB</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top"><div class="inner">
+  <span class="brand">MCP Security KB</span>
+  <a href="index.html">Overview</a>
+  <a href="threat-model.html">Threat Model</a>
+  <a href="attack-vectors.html">Attack Vectors</a>
+  <a href="defenses.html">Defenses</a>
+  <a href="benchmarks-and-tools.html">Benchmarks &amp; Tools</a>
+  <a href="gap-analysis.html">Gap Analysis</a>
+  <a href="design-and-scope.html">Design &amp; Scope</a>
+  <a href="build-plan.html">Build Plan</a>
+  <a href="positioning-update.html" class="active">Positioning Update</a>
+</div></header>
+
+<div class="wrap">
+
+<h1>Positioning Update — Connor &amp; the Pivot to Runtime Enforcement</h1>
+<p class="lede">Session of <strong>2026-06-10</strong>. A literature re-check (the KB sweep was last run 2026-05-30) surfaced papers that <strong>partially scoop the original "behavioral divergence detection" framing</strong>. The headline: <em>detection</em> of declared-vs-actual divergence is now taken (statically and dynamically); <strong>runtime enforcement of a derived contract — plus drift/rug-pull and cross-server — is still wide open</strong>, and is explicitly named as future work by the very paper that scooped us. This page supersedes the framing in <a href="gap-analysis.html">Gap Analysis</a>; the architecture in <a href="design-and-scope.html">Design &amp; Scope</a> and <a href="build-plan.html">Build Plan</a> is unchanged — only the headline claim moves.</p>
+
+<div class="note danger">
+  <span class="t">One-line takeaway</span>
+  Stop pitching a <em>divergence scanner</em>. Pitch a <strong>contract-based runtime-enforcement system</strong> that consumes divergence detection (ours or others') and does the runtime half nobody has built: deterministic per-call enforcement + drift/rug-pull + cross-server. Same proxy, same contract, same datasets — repositioned as the headline instead of the sequel.
+</div>
+
+<h2>1. The paper that forced this: Connor</h2>
+<div class="ref"><span class="title">★ From Component Manipulation to System Compromise: Understanding and Detecting Malicious MCP Servers</span> — <span class="meta">Huang et al., Fudan University; arXiv v2, May 2026 (orig. Apr 2026); submitted to ACM TOSEM. Builds the first component-centric PoC dataset of <strong>114 malicious MCP servers</strong> and a detector named <strong>Connor</strong>.</span> <span class="id"><a href="https://arxiv.org/abs/2604.01905">arXiv:2604.01905</a></span></div>
+
+<p><strong>What Connor is:</strong> a two-stage <em>offline, dynamic</em> detector whose core principle is — in their own words — <em>"behavioral deviation from function intent."</em> That is our divergence idea.</p>
+<ul>
+  <li><strong>Pre-execution:</strong> a <em>Config Analyzer</em> scans the startup shell command for malice; an <em>Intent Inspector</em> reads each tool's description + schema and extracts its <strong>"function intent,"</strong> explicitly separating legitimate intent from injected/poisoned instructions. That sanitized intent is the behavioral baseline.</li>
+  <li><strong>In-execution:</strong> it <em>actually runs</em> the server in a simulated host, auto-generates intent-aligned user queries, traces execution (code slicing + an LLM "Code Semantic Generator"), and an LLM <strong>"Behavior Deviation Judger"</strong> flags steps where observed behavior deviates from the declared intent.</li>
+  <li><strong>Output:</strong> a per-server <strong>verdict</strong> (malicious / benign) + rationale. <strong>F1 = 94.6%</strong> (beats mcp-scan / AI-Infra-Guard by 8.9–59.6 pts). LLM cost <strong>≈ $48.6 per evaluation run</strong>. Real-world scan of 1,672 marketplace servers found <strong>2 malicious</strong>.</li>
+  <li><strong>Dataset + code are public</strong> — this is the gift (see §6).</li>
+  <li>It even names the proxy deployment: <em>"Connor can be deployed as a runtime proxy on the real host"</em> — but for <em>detection/observability</em>, not enforcement.</li>
+</ul>
+
+<div class="note ok">
+  <span class="t">What Connor does NOT do — this is the whole thesis</span>
+  <ul>
+    <li><strong>No enforceable contract artifact.</strong> It emits a verdict, not a machine-readable, pinned capability envelope a runtime layer consumes.</li>
+    <li><strong>The "judge" is an LLM, not a deterministic gate.</strong> Slow, $48/run, carries the Firewall-Fallacy fragility. No ms-latency per-call enforcement.</li>
+    <li><strong>No drift / rug-pull over time.</strong> One-shot audit. Once it says "benign," it walks away — a server that mutates <em>after</em> the audit is structurally invisible to it (their own Limitation: <em>"attacks whose malicious logic is not exercised at runtime may evade detection"</em>).</li>
+    <li><strong>No cross-server / inter-server analysis.</strong> Verbatim: <em>"we do not consider inter-server attacks … left to future work."</em></li>
+    <li><strong>No deterministic capability envelope + sandbox profile.</strong> It flags; it does not block an out-of-envelope call or confine the server.</li>
+  </ul>
+  And the kicker (their Limitations §): <em>"a promising direction is to combine our proxy-based analysis with complementary static detectors to strengthen defenses."</em> Connor names our direction as future work.
+</div>
+
+<h2>2. Other papers that slipped the May-30 sweep</h2>
+<p>Found in the same re-check; must be cited and differentiated.</p>
+<div class="ref"><span class="title">Don't believe everything you read: Understanding and Measuring MCP Behavior under Misleading Tool Descriptions</span> — <span class="meta">Li et al., Feb 2026. Large-scale <strong>static</strong> measurement of <strong>description-code inconsistency</strong> across <strong>10,240 servers</strong>; ~13% substantial mismatch. Takes the <em>static</em> half of "does the tool do what it says." <strong>Helps us</strong> — it's empirical proof the premise is prevalent; we make it <em>enforceable</em>.</span> <span class="id"><a href="https://arxiv.org/abs/2602.03580">arXiv:2602.03580</a></span></div>
+<div class="ref"><span class="title">MCP-SandboxScan: WASM-based Secure Execution and Runtime Analysis for MCP Tools</span> — <span class="meta">Tan et al., Jan 2026. WASM/WASI-sandboxed runtime analysis of MCP tools (source→sink exposure). Overlaps the optional dynamic-prober (M5). Small prototype (3 tools). Cite as the dynamic-sandbox complement; reason to <em>cut</em> our own dynamic prober.</span> <span class="id"><a href="https://arxiv.org/abs/2601.01241">arXiv:2601.01241</a></span></div>
+<div class="ref"><span class="title">Agent Behavioral Contracts (ABC): Formal Specification and Runtime Enforcement for Reliable Autonomous AI Agents</span> — <span class="meta">Bhardwaj, Feb 2026. Takes the <em>terms</em> "behavioral contracts + runtime enforcement" — but contracts are <strong>hand-authored</strong> formal specs (P,I,G,R), generic agents, <strong>not MCP, not behavior-derived</strong>. Differentiate: ours are <em>derived</em> from declared-vs-observed analysis, not written by humans.</span> <span class="id"><a href="https://arxiv.org/abs/2602.22302">arXiv:2602.22302</a></span></div>
+<div class="ref"><span class="title">MCP Pitfall Lab (now read in full)</span> — <span class="meta">Hao, Tan et al., Apr 2026. 3 workflows (email/document/crypto) × 6 server variants (baseline + hardened); P1–P6 pitfall taxonomy; Tier-1 static analyzer F1=1.0 on statically-checkable classes; trace-grounded validators; <strong>releases artifacts</strong>. A small, high-quality reusable testbed; baseline/hardened pairing is ideal for false-positive measurement.</span> <span class="id"><a href="https://arxiv.org/abs/2604.21477">arXiv:2604.21477</a></span></div>
+
+<h2>3. The repositioning — detection is taken, enforcement is open</h2>
+<p>Both halves of <em>detection</em> are now claimed: <strong>static</strong> description-code inconsistency (2602.03580) and <strong>dynamic</strong> behavioral deviation (Connor). What none of them build is the deployable other half.</p>
+<div class="note">
+  <span class="t">The new thesis claim (survives everything published as of 2026-06-10)</span>
+  <em>Divergence detection exists — statically (2602.03580) and dynamically (Connor). What does not exist is turning that signal into a <strong>machine-readable, pinned capability contract</strong> and enforcing it <strong>deterministically at runtime</strong>, with <strong>drift/rug-pull</strong> detection and <strong>cross-server</strong> coverage. We build the enforcement layer these detectors call for.</em>
+  Detection becomes a <em>means</em> (reuse Connor's intent extraction or cite it as the detection baseline); the contract + deterministic enforcement + drift becomes the <em>novelty</em>.
+</div>
+<h3>One-line differentiators (related-work section)</h3>
+<ul>
+  <li><strong>vs Connor (2604.01905):</strong> Connor <em>detects</em> behavioral deviation with an LLM judge and emits a verdict, once, offline. We <em>derive a pinned, machine-readable contract and enforce it deterministically at runtime</em>, adding drift detection and sandbox confinement Connor does not provide — and catching the server that goes bad <em>after</em> the audit, which Connor by construction cannot.</li>
+  <li><strong>vs "Don't believe everything you read" (2602.03580):</strong> they <em>measure</em> static description-code inconsistency across the ecosystem; we make that inconsistency <em>enforceable</em> as a runtime contract.</li>
+  <li><strong>vs ABC (2602.22302):</strong> their contracts are hand-authored formal specs for generic agents; ours are <em>behavior-derived</em>, MCP-specific, and enforced on the live tool-call channel.</li>
+</ul>
+
+<h2>4. What we actually build / focus on</h2>
+<table>
+<thead><tr><th>Piece</th><th>Build vs reuse</th><th>Note</th></tr></thead>
+<tbody>
+<tr><td><strong>Contract derivation — declared side</strong></td><td><em>Adapt</em> Connor's intent-extraction prompt (cite it)</td><td>Description + schema → expected capability profile. No reason to reinvent the prompt.</td></tr>
+<tr><td><strong>Contract derivation — observed side</strong></td><td><strong>Build (static)</strong></td><td>Walk the TS server source (ts-morph AST) for capability sinks (<code>fetch</code> / <code>fs</code> / <code>child_process</code>) + taint from tool params. <em>Static, not dynamic</em> — cheap, no credential wall, and no reachability gap for the envelope (you see the code <em>can</em> open a socket even if a probe never fired). Differentiates from Connor's expensive dynamic approach.</td></tr>
+<tr><td><strong>Contract emitter</strong></td><td><strong>Build — core, no prior art</strong></td><td>The machine-readable capability envelope + pinned manifest/code hash. Connor emits no contract, so there is nothing to fork — this is the novel artifact.</td></tr>
+<tr><td><strong>Interception proxy + deterministic enforcement</strong></td><td><strong>Build — core</strong></td><td>stdio MITM; per-call hash/drift, schema, capability-envelope checks at ~ms. The LLM is a <em>secondary</em> signal only, never the gate.</td></tr>
+<tr><td><strong>Drift / rug-pull monitor</strong></td><td><strong>Build — headline novelty</strong></td><td>Pin manifest+behavior hash; watch <code>tools/list_changed</code>; re-derive on change. The temporal axis Connor cannot see.</td></tr>
+<tr><td><strong>Cross-server analysis</strong></td><td><strong>Build — depth (scope dial)</strong></td><td>The spatial axis: server A's output hijacking a call to server B across the loaded set. Connor's explicit future work.</td></tr>
+</tbody>
+</table>
+<div class="note ok">
+  <span class="t">Language decision: TypeScript</span>
+  Confirmed this session as the better choice, not a compromise: the official MCP SDK is TS-first; the largest share of real-world servers is TS/Node on npm (more static-analysis targets than Python); <code>ts-morph</code> / the TS compiler API give a clean AST; Semgrep supports TS. LLM bits are language-agnostic (API call for declared-extraction; local Ollama for the runtime intent check). Scope statement: "static analysis targets TypeScript MCP servers; the contract format and proxy are language-agnostic." Python benchmark harnesses (MSB etc.) attack at the protocol level, so a TS proxy sits in the middle regardless (thin adapter at worst). <strong>No LLM is trained or fine-tuned</strong> — off-the-shelf API model offline + small local model at runtime.
+</div>
+
+<h2>5. The two-axis framing &amp; the scope dial (drift + cross-server)</h2>
+<p>If the professor asks for more scope, the Masterarbeit scales cleanly because drift and cross-server are the <em>same machine</em> on two axes:</p>
+<ul>
+  <li><strong>Temporal axis — drift / rug-pull:</strong> "does this server still behave like it did at audit time?" Lower-risk; a complete thesis on its own; <strong>the must-have core.</strong></li>
+  <li><strong>Spatial axis — cross-server:</strong> "does this server behave correctly given the <em>other</em> servers loaded alongside it?" Harder (must model how A's output enters context and steers a call to B); <strong>additive depth.</strong></li>
+</ul>
+<div class="note warn">
+  <span class="t">Sequencing rule — avoid two half-built halves</span>
+  Build order is additive, never load-bearing on the hard part: <strong>(HP)</strong> scanner + contract derivation (single server) → <strong>(MA core)</strong> proxy + enforcement + <strong>drift</strong> → <strong>(MA depth)</strong> cross-server. If time runs out, cross-server is a strong evaluated extension or a clearly-scoped future-work chapter — not a hole. Pitch drift-focused enforcement as Plan A; keep "1+2" ready as the answer to "is that enough for a master's?" — phrase to Bettina: <em>"the scope can scale from single-server drift to the multi-server / cross-server case, whichever depth fits."</em>
+</div>
+
+<h2>6. Benchmarks &amp; evaluation design</h2>
+<div class="note danger">
+  <span class="t">The trap — never lead with detection F1</span>
+  A static-derived contract used as a <em>detector</em> will likely score below Connor's 94.6% F1. Running their dataset and reporting detection F1 enters a race we're not running, and invites "why is yours lower?" <strong>Detection F1 is never the headline.</strong> Mention it once, honestly, then pivot to enforcement metrics.
+</div>
+
+<h3>What a runtime proxy is actually measured on (all ours)</h3>
+<table>
+<thead><tr><th>Metric</th><th>Benchmark / source</th><th>vs Connor</th></tr></thead>
+<tbody>
+<tr><td><strong>Block rate (security)</strong> — attacks <em>stopped</em> live, agent+proxy vs agent-alone</td><td><strong>MSB</strong> (public repo, agent-in-the-loop, ~2,000 instances) · MCPTox · Connor's 114 servers · Pitfall Lab</td><td>Different metric than detection F1; Connor doesn't block.</td></tr>
+<tr><td><strong>Latency overhead ("X ms lag")</strong> — median/p95 ms added per call; % of calls hitting the LLM path</td><td>Measured on the above, live</td><td>Connor has no comparable number (offline $48 batch). <em>Required</em> for a runtime defense.</td></tr>
+<tr><td><strong>Utility / false-positive cost</strong> — legit calls wrongly blocked; task-completion regression</td><td><strong>MCP-Universe / MCP-Bench</strong> (capability benchmarks) + Pitfall Lab baseline/hardened pairs</td><td>Connor reports raw FPs but no task-regression — a dimension we own.</td></tr>
+<tr><td><strong>Cost</strong></td><td>Per-call $ of each path</td><td>~$0 deterministic vs Connor's $48/run.</td></tr>
+<tr><td><strong>Drift / rug-pull catch rate</strong></td><td><strong>Self-built benchmark</strong> (see below)</td><td><strong>Connor N/A by construction</strong> — no time axis.</td></tr>
+<tr><td><strong>Cross-server catch rate</strong></td><td><strong>Self-built benchmark</strong></td><td><strong>Connor N/A</strong> — excludes inter-server.</td></tr>
+</tbody>
+</table>
+<p class="muted">Latency reference points from the literature (to contextualize "X ms"): Prompt-CFI 0.04 ms · MCP Guardian 3–4 ms · AEGIS 8.3 ms · MiniScope 1–6% · SentinelAgent NLI ≈20 ms/step. Live-enforcement evaluation is established practice — AEGIS, MiniScope, MCP Guardian, Prompt-CFI all report a (block-rate / FP / latency) triple, so we are not in a vacuum.</p>
+
+<h3>The self-built benchmark — legitimate, not circular (3 rules)</h3>
+<p>Drift and cross-server have <strong>no existing benchmark</strong> (nobody enforces over time / across servers), so we construct one — and benchmark construction is itself a first-class contribution here (MCPTox, MSB, Pitfall Lab, Connor's set are all "we built a dataset" papers). The circularity objection ("you built a test you pass") is killed by three rules:</p>
+<ol>
+  <li><strong>Threat-derived, mechanical generation — not hand-picked.</strong> Define general <em>mutation operators</em> (inject undeclared egress; swap a tool's description post-audit; add a write to a read-only tool; trigger payload on call N) and apply them <em>mechanically</em> to the public benign+malicious corpora. The cases reflect the threat, not our solution.</li>
+  <li><strong>Run other systems on it.</strong> On every benchmark run 2–3 baselines under identical conditions: <em>no-defense</em> (floor), a <em>generic proxy</em> (regex/WAF ≈ Guardian), and <em>Connor / mcp-scan</em> where applicable. When they score ~0 on drift <em>because they structurally can't</em> and we score well, it's a capability gap exposed across systems, not a self-serving demo. This single discipline also guarantees we never report a number without a comparison generated in our own setup.</li>
+  <li><strong>Release it publicly</strong> — "first drift/rug-pull benchmark for MCP" becomes a citable side-contribution and signals good faith.</li>
+</ol>
+<div class="note warn">
+  <span class="t">The real validity risk to neutralize in the methodology</span>
+  Same person building both attacks and defense can bias attacks toward catchable ones. Mitigate: (a) mechanical mutation operators, not hand-picked cases; (b) reuse <em>independent</em> attack sources we didn't write — Connor's PoCs, MCP-ITP's automated poisoning (2601.07395), Pitfall Lab variants — for as much of the corpus as possible. State this explicitly and the objection is gone.
+</div>
+
+<h3>Corpus reuse — we build very little ourselves</h3>
+<ul>
+  <li><strong>Connor's 114-server PoC dataset + code</strong> (public) — large, labeled, peer-reviewed malicious-server corpus (data leakage, reverse shell, ransomware, backdoor, sabotage; single + multi-component).</li>
+  <li><strong>Pitfall Lab</strong> — 6 baseline/hardened variants + P1–P6 + trace validators.</li>
+  <li><strong>MCPTox / MSB</strong> — protocol-level attack instances for the live proxy eval.</li>
+  <li><strong>MCP-Universe / MCP-Bench</strong> — benign tasks for utility/FP.</li>
+  <li>Hand-craft only a handful of servers to isolate the specific contract/drift cases the public sets don't cover.</li>
+  <li><em>Caveat:</em> MCPTox/MSB mostly poison the <em>description</em> against benign-code servers (metadata-poisoning). For the <em>scanner's</em> code-divergence detection you need <em>code-divergent</em> servers → Connor's dataset + Pitfall Lab provide those.</li>
+</ul>
+
+<h2>7. Pivot options (if the professor says the idea is fully taken)</h2>
+<p>Ranked by how much of the existing month survives. Strongly prefer Tier 1 — it keeps the entire MCP harness + proxy + reused datasets.</p>
+<table>
+<thead><tr><th>Tier</th><th>Direction</th><th>Why open / anchor</th><th>Reuse</th></tr></thead>
+<tbody>
+<tr><td><strong>1 (minimal)</strong></td><td><strong>Rug-pull / drift as the headline</strong></td><td>Connor's one-shot model can't see temporal mutation (their own limitation).</td><td>~100% of design.</td></tr>
+<tr><td><strong>1 (minimal)</strong></td><td><strong>Cross-server / compositional MCP attacks</strong></td><td>Connor: "we do not consider inter-server attacks … left to future work."</td><td>Harness + proxy; new analysis layer.</td></tr>
+<tr><td><strong>2 (adjacent)</strong></td><td>IPI defense for <strong>browser / computer-use agents</strong></td><td>#1 unsolved agent problem; proxy intercepts untrusted content. Benchmarks: AgentDojo, InjecAgent, "Too Helpful to Be Safe" (2601.10758). <em>Caveat: generic IPI defense is crowding (SecAlign, StruQ, IPIGuard, CaMeL) — pick a specific surface.</em></td><td>Proxy + eval skills.</td></tr>
+<tr><td><strong>2 (adjacent)</strong></td><td><strong>GUI / computer-use agent security</strong></td><td>Hot (Claude computer-use, Operator); screenshot/pop-up injection (LaSM 2507.10610). Newer, less crowded. <em>Caveat: more env setup.</em></td><td>Eval skills; new env.</td></tr>
+<tr><td><strong>2 (adjacent)</strong></td><td><strong>Agent memory poisoning</strong></td><td>Among the hottest 2026 threads (systematic study 2606.04329, Jun 2026; attack+defense 2601.05504). Young space, "untrusted input → trusted store."</td><td>Threat instinct; new domain (costs the month).</td></tr>
+<tr><td><strong>3</strong></td><td>MAC / least-privilege / delegation provenance</td><td>2601.11893 (privilege escalation MAC), HDP 2604.04522, Authenticated Delegation 2501.09674. Enforcement-flavored — pairs with the contract idea.</td><td>Enforcement mindset.</td></tr>
+</tbody>
+</table>
+<div class="note warn">
+  <span class="t">Avoid</span>
+  Generic jailbreak/guardrail robustness (extremely crowded) · "yet another attack taxonomy / survey" (the field is saturated) · generic IPI defense without a specific agent surface.
+</div>
+
+<h2>8. State of play with the professor (Bettina)</h2>
+<ul>
+  <li>Solo project — Julius alone (assistant = the LLM). One Hauptprojekt + one Masterarbeit, both solo. <strong>No person-split needed</strong> — only the timeline split (HP ≈ 1 month, MA ≈ 3 months).</li>
+  <li>Email drafted (2026-06-10) telling Bettina about Connor and asking whether to continue toward the live-enforcement gap. Tone: a normal update, not "bad news"; no em dashes; concise. Awaiting her reply + a short meeting to lock scope and set the HP deadline.</li>
+  <li>Open question only she can answer: does the enforcement repositioning clear the local master's novelty bar? (Confidence high that it does — a master's needs rigorous independent work + a real result, not a globally-first idea; being scooped by a top lab months apart is a signal of good instincts, and having Connor as a public baseline + dataset is an asset.)</li>
+</ul>
+
+<footer class="foot">
+  Session 2026-06-10. Supersedes the headline framing in <a href="gap-analysis.html">Gap Analysis</a> (architecture in <a href="design-and-scope.html">Design</a>/<a href="build-plan.html">Build Plan</a> unchanged). Source PDFs for Connor (2604.01905) and Pitfall Lab (2604.21477) read in full; others from abstracts — verify exact numbers in the PDFs before citing. Re-run the paper-search sweep before locking scope; the field adds papers monthly.
+</footer>
+
+</div>
+</body>
+</html>

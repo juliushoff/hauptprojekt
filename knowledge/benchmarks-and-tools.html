@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Benchmarks &amp; Tools — MCP Security KB</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top"><div class="inner">
+  <span class="brand">MCP Security KB</span>
+  <a href="index.html">Overview</a>
+  <a href="threat-model.html">Threat Model</a>
+  <a href="attack-vectors.html">Attack Vectors</a>
+  <a href="defenses.html">Defenses</a>
+  <a href="benchmarks-and-tools.html" class="active">Benchmarks &amp; Tools</a>
+  <a href="gap-analysis.html">Gap Analysis</a>
+  <a href="design-and-scope.html">Design &amp; Scope</a>
+  <a href="build-plan.html">Build Plan</a>
+  <a href="positioning-update.html">Positioning Update</a>
+</div></header>
+
+<div class="wrap">
+
+<h1>Benchmarks &amp; Existing Tools</h1>
+<p class="lede">The test-benches you can evaluate against (the empirical backbone of the Masterarbeit), and the existing scanners/guardians that are direct prior art for your CLI — with an honest gap analysis to position the contribution.</p>
+
+<h2>Security benchmarks / test-benches</h2>
+<p>These give you ground-truth attack corpora and metrics so your evaluation is reproducible and comparable. Most ship malicious + benign MCP servers and an execution harness.</p>
+
+<table>
+<thead><tr><th>Benchmark</th><th>Targets</th><th>Scale</th><th>Headline finding / metric</th></tr></thead>
+<tbody>
+<tr>
+  <td><strong>MCPTox</strong><br><span class="id"><a href="https://arxiv.org/abs/2508.14925">2508.14925</a></span></td>
+  <td>Tool Poisoning (metadata, no execution)</td>
+  <td>45 live servers · 353 real tools · 1312 malicious cases · 20 agents · 10 risk categories</td>
+  <td>o1-mini 72.8&nbsp;% ASR; more-capable models more vulnerable; refusal rate &lt;3&nbsp;% (Claude-3.7).</td>
+</tr>
+<tr>
+  <td><strong>MSB (MCP Security Bench)</strong><br><span class="id"><a href="https://arxiv.org/abs/2510.15994">2510.15994</a></span></td>
+  <td>12 attacks across the full pipeline (planning/invocation/response)</td>
+  <td>9 agents · 10 domains · 405 tools · 2000 attack instances</td>
+  <td>Introduces <strong>Net Resilient Performance (NRP)</strong> = security ↔ utility trade-off. Strong models more vulnerable. <a href="https://github.com/dongsenzhang/MSB">code</a></td>
+</tr>
+<tr>
+  <td><strong>MCP-TDP</strong> ("When the Manual Lies")<br><span class="id"><a href="https://arxiv.org/abs/2605.24069">2605.24069</a></span></td>
+  <td>Tool Description Poisoning (semantic, cognitive-layer)</td>
+  <td>32 realistic cases · 6 risk categories · 8 LLMs</td>
+  <td>GPT-4o ≈100&nbsp;% ASR in 6 scenarios; the <strong>"Firewall Fallacy"</strong>; proposes Reactive Self-Correction.</td>
+</tr>
+<tr>
+  <td><strong>MCP-SafetyBench</strong><br><span class="id"><a href="https://arxiv.org/abs/2512.15163">2512.15163</a></span></td>
+  <td>Safety eval of LLMs operating real MCP servers</td>
+  <td>real-world servers</td>
+  <td>Safety (harm-avoidance) framing, complementary to pure attack-resistance.</td>
+</tr>
+<tr>
+  <td><strong>MCP Pitfall Lab</strong><br><span class="id"><a href="https://arxiv.org/abs/2604.21477">2604.21477</a></span></td>
+  <td>Developer pitfalls under multi-vector attacks (metadata, outputs, cross-tool, multimodal)</td>
+  <td>multi-layer test lab</td>
+  <td>Focuses on <em>server-developer</em> mistakes — maps well onto what a static scanner should flag.</td>
+</tr>
+<tr>
+  <td><strong>MCP-Universe</strong><br><span class="id"><a href="https://arxiv.org/abs/2508.14704">2508.14704</a></span></td>
+  <td><em>Capability</em> (not security): long-horizon real tasks</td>
+  <td>6 domains · 11 servers</td>
+  <td>Use for the <em>utility</em> half of an NRP-style eval (does your defense break legit tasks?). <a href="https://arxiv.org/abs/2508.14704">incl. UI framework</a></td>
+</tr>
+<tr>
+  <td><strong>MCP-Bench</strong><br><span class="id"><a href="https://arxiv.org/abs/2508.20453">2508.20453</a></span></td>
+  <td><em>Capability</em>: multi-step, cross-tool coordination</td>
+  <td>many MCP servers</td>
+  <td>Another utility-side baseline for measuring functional regression under defense.</td>
+</tr>
+</tbody>
+</table>
+
+<div class="note ok">
+  <span class="t">Recommended evaluation stack for the thesis</span>
+  Attack resistance: <strong>MCPTox</strong> + <strong>MSB</strong> (poisoning + full-pipeline). Utility regression: <strong>MCP-Universe</strong> or <strong>MCP-Bench</strong>. Report both as an <strong>NRP-style</strong> curve. For the CLI specifically, you can also build a small labelled corpus of <em>benign vs poisoned manifests</em> (MCP Pitfall Lab + MCPTox cases) and report precision/recall/F1 of the static detectors — that's a clean, defensible Hauptprojekt result.
+</div>
+
+<h2>Existing scanners / analyzers (prior art for the CLI)</h2>
+<table>
+<thead><tr><th>Tool</th><th>Approach</th><th>What it covers</th></tr></thead>
+<tbody>
+<tr><td><strong>MCPGuard</strong> <span class="id"><a href="https://arxiv.org/abs/2510.23673">2510.23673</a></span></td><td>Automated vulnerability detection in MCP servers</td><td>Server-side vulns; closest "scanner" framing.</td></tr>
+<tr><td><strong>VIPER-MCP</strong> <span class="id"><a href="https://arxiv.org/abs/2605.21392">2605.21392</a></span></td><td>Static <em>taint analysis</em> (+ exploitation)</td><td>Shell/network/FS sinks reachable from agent-driven input → command injection / RCE.</td></tr>
+<tr><td><strong>Agent Audit</strong> <span class="id"><a href="https://arxiv.org/abs/2603.22853">2603.22853</a></span></td><td>Whole-app security analysis (model + tool code + deployment config)</td><td>Broader than MCP; good for the "what to inspect before deploy" framing.</td></tr>
+<tr><td><strong>MCP-in-SoS</strong> <span class="id"><a href="https://arxiv.org/abs/2603.10194">2603.10194</a></span></td><td>Risk-assessment framework for OSS MCP servers</td><td>Scoring/triage of open-source servers.</td></tr>
+<tr><td><strong>Over-privilege auditing</strong> <span class="id"><a href="https://arxiv.org/abs/2603.21641">2603.21641</a></span></td><td>Capability auditing</td><td>Declared-vs-needed privilege gaps.</td></tr>
+<tr><td><strong>"MCP at First Glance"</strong> <span class="id"><a href="https://arxiv.org/abs/2506.13538">2506.13538</a></span></td><td>Empirical study (not a tool)</td><td>Real-world vuln/maintainability distribution — use to prioritize which detectors matter most.</td></tr>
+</tbody>
+</table>
+<p class="muted">Also note the well-known <em>industry</em> tools (not arXiv): Invariant Labs' <code>mcp-scan</code>, Anthropic's MCP inspector, and various "MCP firewall/gateway" products. Worth a paragraph in related work; verify current behavior directly since they move fast.</p>
+
+<h2>Runtime proxies / guardians (prior art for the Masterarbeit)</h2>
+<ul>
+  <li><strong>IPI-Proxy</strong> (<a href="https://arxiv.org/abs/2605.11868">2605.11868</a>) — intercepting proxy for red-teaming web agents against indirect prompt injection. The single closest artifact to your live-proxy plan; read it carefully for architecture and eval methodology.</li>
+  <li><strong>MCP Guardian</strong> (<a href="https://arxiv.org/abs/2504.12757">2504.12757</a>) — security-first wrapping layer (auth, rate-limit, logging, scanning).</li>
+  <li><strong>Prompt Control-Flow Integrity</strong> (<a href="https://arxiv.org/abs/2603.18433">2603.18433</a>) — priority-aware runtime instruction-precedence enforcement.</li>
+  <li><strong>Caging the Agents</strong> (<a href="https://arxiv.org/abs/2603.17419">2603.17419</a>) — zero-trust runtime architecture for autonomous agents.</li>
+</ul>
+
+<h2>Gap analysis → where your contribution sits</h2>
+<div class="note">
+  <span class="t">Honest positioning</span>
+  The space moved fast in 2025–2026: poisoning benchmarks (MCPTox, MSB, MCP-TDP), server scanners (MCPGuard, VIPER-MCP), and runtime guardians (MCP Guardian, IPI-Proxy) all exist. So "a scanner" or "a proxy" alone is <em>not</em> novel. Candidate angles that still look open:
+  <ul>
+    <li><strong>Unification &amp; coverage.</strong> Existing scanners each target one slice (taint <em>or</em> metadata <em>or</em> privilege). A single CLI that runs all four analyzer families (metadata-NL, identity, taint, supply-chain/config) against the Hou 16-threat taxonomy and reports coverage per threat is a useful, well-scoped engineering+evaluation contribution.</li>
+    <li><strong>Static→runtime continuity.</strong> Few works connect the pre-flight scan to the runtime monitor. Your two artifacts sharing one threat model and one policy schema (scan emits policies the proxy enforces; proxy confirms the "both/runtime" threats the scan could only suspect) is a genuinely novel framing.</li>
+    <li><strong>Rug-pull / drift detection via manifest pinning</strong> — pin-and-diff of tool manifest+code hashes bridges static and runtime and is under-explored.</li>
+    <li><strong>Rigorous false-positive / utility accounting.</strong> Many attack papers report ASR but not the defense's cost. An NRP-style eval of <em>your</em> detectors on real servers (precision/recall + task-regression) would be a credible empirical core.</li>
+  </ul>
+</div>
+
+<div class="note warn">
+  <span class="t">Before locking scope</span>
+  Confirm which of MCPGuard / VIPER-MCP / MSB have released code &amp; datasets (MSB has a public repo) — reusing their corpora saves months and makes results comparable. Then do a focused related-work diff so the thesis claim is precisely "X exists, Y exists, but the <em>combination/continuity/evaluation</em> Z does not."
+</div>
+
+<footer class="foot">
+  Benchmark figures quoted from each paper's abstract; verify exact numbers in the PDFs before citing. Gap analysis is this KB's framing — pressure-test it with your professor.
+</footer>
+
+</div>
+</body>
+</html>

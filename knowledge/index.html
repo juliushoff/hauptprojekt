@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MCP & Agent Security — Knowledge Base</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top"><div class="inner">
+  <span class="brand">MCP Security KB</span>
+  <a href="index.html" class="active">Overview</a>
+  <a href="threat-model.html">Threat Model</a>
+  <a href="attack-vectors.html">Attack Vectors</a>
+  <a href="defenses.html">Defenses</a>
+  <a href="benchmarks-and-tools.html">Benchmarks &amp; Tools</a>
+  <a href="gap-analysis.html">Gap Analysis</a>
+  <a href="design-and-scope.html">Design &amp; Scope</a>
+  <a href="build-plan.html">Build Plan</a>
+  <a href="positioning-update.html">Positioning Update</a>
+</div></header>
+
+<div class="wrap">
+
+<h1>Security of MCP-based LLM Agents</h1>
+<p class="lede">A working knowledge base for the Hauptprojekt (CLI scanner) and the follow-on Masterarbeit (live proxy). It collects the threat model, attack taxonomy, defenses, evaluation benchmarks, and existing tooling from the 2025–2026 literature.</p>
+
+<div class="note danger">
+  <span class="t">⚠ Read first — Positioning Update (2026-06-10)</span>
+  A literature re-check found <strong>Connor</strong> (<a href="https://arxiv.org/abs/2604.01905">arXiv:2604.01905</a>), which partially scoops the "behavioral divergence <em>detection</em>" framing. The thesis now repositions onto <strong>runtime <em>enforcement</em> of a derived contract + drift/rug-pull + cross-server</strong> — the half Connor explicitly leaves as future work. The architecture is unchanged; only the headline claim moves. <strong>→ <a href="positioning-update.html">Positioning Update</a></strong> is the current state of thinking and supersedes the framing on the <a href="gap-analysis.html">Gap Analysis</a> page.
+</div>
+
+<div class="note">
+  <span class="t">What is MCP, in one paragraph</span>
+  The <strong>Model Context Protocol</strong> (Anthropic, Nov 2024; now under the Linux Foundation's Agentic AI Foundation) is an open standard that lets an LLM agent <em>discover</em>, <em>describe</em>, and <em>call</em> external tools through a uniform interface. Architecture = <strong>Host</strong> (the AI app, e.g. Claude Desktop / Cursor) → <strong>Client</strong> (1:1 connector inside the host) → <strong>Server</strong> (exposes <em>tools</em>, <em>resources</em>, <em>prompts</em>). Tools are first-class, composable objects carrying natural-language metadata. That metadata is exactly what makes MCP powerful — and exactly what widens the attack surface.
+</div>
+
+<h2>The core security thesis</h2>
+<p>MCP turns tool descriptions, tool outputs, and tool composition into <strong>untrusted input that flows straight into the model's instruction channel</strong>. Classic software security assumes code is the threat; in MCP, <em>natural-language metadata and data are the threat</em>, and the "interpreter" is a probabilistic LLM that cannot reliably separate data from instructions. Two compounding facts from the benchmarks:</p>
+<ul>
+  <li><strong>More capable models are <em>more</em> vulnerable.</strong> Tool poisoning exploits superior instruction-following — o1-mini reaches 72.8&nbsp;% attack success on MCPTox; GPT-4o ≈100&nbsp;% on six high-risk MCP-TDP scenarios.</li>
+  <li><strong>Safety alignment barely helps.</strong> Agents almost never <em>refuse</em> these attacks (Claude-3.7-Sonnet refusal rate &lt;3&nbsp;% on MCPTox) because the malicious action is carried out through <em>legitimate</em> tools.</li>
+</ul>
+
+<h2>How this maps to your project</h2>
+<p>The single most useful organizing axis for your work is <strong>when an attack becomes observable</strong>. It cleanly splits Hauptprojekt scope from Masterarbeit scope.</p>
+
+<table>
+<thead><tr><th>Phase</th><th>What it can see</th><th>Catches</th><th>Misses</th></tr></thead>
+<tbody>
+<tr>
+  <td><strong>Hauptprojekt</strong><br><span class="tag static">static / pre-flight CLI scan</span></td>
+  <td>Server manifest, tool/resource metadata, descriptions, declared schema, source &amp; dependencies, config files, installer provenance.</td>
+  <td>Tool poisoning text, preference-manipulation phrasing, typosquatting/name collisions, command-injection sinks, over-broad capability declarations, plaintext secrets, vulnerable deps.</td>
+  <td>Anything that only appears at runtime: rug pulls (post-trust mutation), indirect prompt injection in <em>live</em> tool output, tool-chaining abuse, session/auth attacks.</td>
+</tr>
+<tr>
+  <td><strong>Masterarbeit</strong><br><span class="tag runtime">runtime / live proxy</span></td>
+  <td>Actual tool-call requests &amp; responses, call sequences, data flows, cross-server interactions, dynamic metadata changes.</td>
+  <td>Indirect prompt injection, rug pulls / dynamic mutation, cross-server shadowing in action, tool-chaining exfiltration, out-of-scope parameters, credential egress.</td>
+  <td>Nothing structurally — but cost is latency, false positives, and needing a policy/decision model.</td>
+</tr>
+</tbody>
+</table>
+
+<p>See <a href="attack-vectors.html">Attack Vectors</a> for the per-attack <span class="tag static">static</span> / <span class="tag runtime">runtime</span> / <span class="tag both">both</span> classification — that table is the spec for what the CLI scanner should detect vs. what is deferred to the proxy.</p>
+
+<h2>Start here</h2>
+<div class="grid">
+  <a class="card" href="threat-model.html">
+    <span class="k">01 · Foundations</span>
+    <h3>Threat Model</h3>
+    <p>MCP architecture, the 4-phase server lifecycle, attacker archetypes, and the full 16-threat taxonomy (Hou et al.).</p>
+  </a>
+  <a class="card" href="attack-vectors.html">
+    <span class="k">02 · Attacks</span>
+    <h3>Attack Vectors</h3>
+    <p>Each attack class explained with an example, plus static-vs-runtime detectability — the scanner spec.</p>
+  </a>
+  <a class="card" href="defenses.html">
+    <span class="k">03 · Mitigations</span>
+    <h3>Defenses</h3>
+    <p>Defense layers (design-time, supply-chain, runtime proxy, model-level) mapped to each attack.</p>
+  </a>
+  <a class="card" href="benchmarks-and-tools.html">
+    <span class="k">04 · Evaluation &amp; Prior Art</span>
+    <h3>Benchmarks &amp; Tools</h3>
+    <p>Test-benches you can evaluate against, plus existing scanners/guardians = prior art to position against.</p>
+  </a>
+</div>
+
+<h2>Key references (master list)</h2>
+<p class="muted">Grouped by role. arXiv IDs link to the abstract. The starred items are the highest-value reads to begin with.</p>
+
+<h3>Surveys &amp; threat taxonomies</h3>
+<div class="ref"><span class="title">★ Model Context Protocol (MCP): Landscape, Security Threats, and Future Research Directions</span> — <span class="meta">Hou, Zhao, Wang, Wang · the foundational MCP security survey; defines the 4-phase lifecycle &amp; 16-threat taxonomy used throughout this KB.</span> <span class="id"><a href="https://arxiv.org/abs/2503.23278">arXiv:2503.23278</a></span></div>
+<div class="ref"><span class="title">A Systematic Survey of Security Threats and Defenses in LLM-Based AI Agents: A Layered Attack-Surface Framework</span> — <span class="meta">memory / tools / multi-agent / session attack surfaces.</span> <span class="id"><a href="https://arxiv.org/abs/2604.23338">arXiv:2604.23338</a></span></div>
+<div class="ref"><span class="title">A Formal Security Framework for MCP-Based AI Agents: Threat Taxonomy, Verification Models, and Defense Mechanisms</span> — <span class="meta">formal/verification angle on MCP threats.</span> <span class="id"><a href="https://arxiv.org/abs/2604.05969">arXiv:2604.05969</a></span></div>
+<div class="ref"><span class="title">AI Agents Under Threat: A Survey of Key Security Challenges and Future Pathways</span> — <span class="meta">broader agent-security context predating MCP.</span> <span class="id"><a href="https://arxiv.org/abs/2406.02630">arXiv:2406.02630</a></span></div>
+
+<h3>Attack techniques</h3>
+<div class="ref"><span class="title">★ MCPTox: A Benchmark for Tool Poisoning Attack on Real-World MCP Servers</span> — <span class="meta">45 live servers, 353 tools, 1312 cases; tool poisoning via metadata, no execution.</span> <span class="id"><a href="https://arxiv.org/abs/2508.14925">arXiv:2508.14925</a></span></div>
+<div class="ref"><span class="title">When the Manual Lies: A Realistic Benchmark to Evaluate MCP Poisoning Attacks (MCP-TDP)</span> — <span class="meta">Tool Description Poisoning; the "Firewall Fallacy"; "Reactive Self-Correction" defense.</span> <span class="id"><a href="https://arxiv.org/abs/2605.24069">arXiv:2605.24069</a></span></div>
+<div class="ref"><span class="title">MCP-ITP: An Automated Framework for Implicit Tool Poisoning in MCP</span> — <span class="meta">poisoned tool stays uninvoked; induces a legit high-privilege tool to act; evades detectors.</span> <span class="id"><a href="https://arxiv.org/abs/2601.07395">arXiv:2601.07395</a></span></div>
+<div class="ref"><span class="title">ETDI: Mitigating Tool Squatting and Rug-Pull Attacks in MCP (OAuth-Enhanced Tool Definitions)</span> — <span class="meta">defines tool squatting &amp; rug pull precisely; proposes signed tool definitions + policy-based access control.</span> <span class="id"><a href="https://arxiv.org/abs/2506.01333">arXiv:2506.01333</a></span></div>
+<div class="ref"><span class="title">Securing GenAI Multi-Agent Systems Against Tool Squatting: A Zero-Trust Registry-Based Approach</span> — <span class="id"><a href="https://arxiv.org/abs/2504.19951">arXiv:2504.19951</a></span></div>
+
+<h3>Empirical / measurement studies</h3>
+<div class="ref"><span class="title">★ Don't believe everything you read: Measuring MCP Behavior under Misleading Tool Descriptions</span> — <span class="meta">static <em>description-code inconsistency</em> across 10,240 servers (~13% mismatch); takes the static half of "does it do what it says" — we make it enforceable. See <a href="positioning-update.html">Positioning Update</a>.</span> <span class="id"><a href="https://arxiv.org/abs/2602.03580">arXiv:2602.03580</a></span></div>
+<div class="ref"><span class="title">★ Model Context Protocol (MCP) at First Glance: Studying the Security and Maintainability of MCP Servers</span> — <span class="meta">large-scale study of real MCP servers; concrete vulnerability classes &amp; code smells.</span> <span class="id"><a href="https://arxiv.org/abs/2506.13538">arXiv:2506.13538</a></span></div>
+<div class="ref"><span class="title">A First Measurement Study on Authentication Security in Real-World Remote MCP Servers</span> — <span class="meta">OAuth/auth posture of remote MCP deployments.</span> <span class="id"><a href="https://arxiv.org/abs/2605.22333">arXiv:2605.22333</a></span></div>
+<div class="ref"><span class="title">MCP-in-SoS: Risk Assessment Framework for Open-Source MCP Servers</span> — <span class="id"><a href="https://arxiv.org/abs/2603.10194">arXiv:2603.10194</a></span></div>
+<div class="ref"><span class="title">Auditing MCP Servers for Over-Privileged Tool Capabilities</span> — <span class="id"><a href="https://arxiv.org/abs/2603.21641">arXiv:2603.21641</a></span></div>
+
+<h3>Detection / scanning / guardian tools (prior art for the CLI)</h3>
+<div class="ref"><span class="title">★★ Connor — From Component Manipulation to System Compromise: Detecting Malicious MCP Servers</span> — <span class="meta">the paper that forced the repositioning (see <a href="positioning-update.html">Positioning Update</a>). Two-stage <em>offline</em> behavioral-deviation detector; "function intent" vs traced behavior; F1 94.6%, ≈$48/run; <strong>public 114-server dataset + code</strong>; emits a verdict, not a contract; no enforcement / drift / cross-server (its own future work).</span> <span class="id"><a href="https://arxiv.org/abs/2604.01905">arXiv:2604.01905</a></span></div>
+<div class="ref"><span class="title">MCP-SandboxScan: WASM-based Secure Execution and Runtime Analysis for MCP Tools</span> — <span class="meta">dynamic source→sink analysis in a WASM/WASI sandbox; cite as the dynamic-prober complement.</span> <span class="id"><a href="https://arxiv.org/abs/2601.01241">arXiv:2601.01241</a></span></div>
+<div class="ref"><span class="title">★ MCPGuard: Automatically Detecting Vulnerabilities in MCP Servers</span> — <span class="id"><a href="https://arxiv.org/abs/2510.23673">arXiv:2510.23673</a></span></div>
+<div class="ref"><span class="title">★ VIPER-MCP: Detecting and Exploiting Taint-Style Vulnerabilities in MCP Servers</span> — <span class="meta">static taint analysis for shell/network/FS sinks.</span> <span class="id"><a href="https://arxiv.org/abs/2605.21392">arXiv:2605.21392</a></span></div>
+<div class="ref"><span class="title">MCP Guardian: A Security-First Layer for Safeguarding MCP-Based AI Systems</span> — <span class="meta">runtime guardrail layer (proxy-shaped).</span> <span class="id"><a href="https://arxiv.org/abs/2504.12757">arXiv:2504.12757</a></span></div>
+<div class="ref"><span class="title">MiniScope: A Least-Privilege Framework for Authorizing Tool-Calling Agents</span> — <span class="id"><a href="https://arxiv.org/abs/2512.11147">arXiv:2512.11147</a></span></div>
+<div class="ref"><span class="title">Agent Audit: A Security Analysis System for LLM Agent Applications</span> — <span class="id"><a href="https://arxiv.org/abs/2603.22853">arXiv:2603.22853</a></span></div>
+
+<h3>Runtime defenses / proxies (prior art for the Masterarbeit)</h3>
+<div class="ref"><span class="title">Agent Behavioral Contracts (ABC): Formal Specification and Runtime Enforcement for Reliable Autonomous AI Agents</span> — <span class="meta">takes the <em>terms</em> "behavioral contracts + runtime enforcement" but contracts are <strong>hand-authored</strong>, generic agents, not MCP, not behavior-derived. Differentiate carefully. See <a href="positioning-update.html">Positioning Update</a>.</span> <span class="id"><a href="https://arxiv.org/abs/2602.22302">arXiv:2602.22302</a></span></div>
+<div class="ref"><span class="title">★ IPI-Proxy: An Intercepting Proxy for Red-Teaming Web-Browsing AI Agents Against Indirect Prompt Injection</span> — <span class="meta">closest existing artifact to your live-proxy idea.</span> <span class="id"><a href="https://arxiv.org/abs/2605.11868">arXiv:2605.11868</a></span></div>
+<div class="ref"><span class="title">Prompt Control-Flow Integrity: A Priority-Aware Runtime Defense Against Prompt Injection</span> — <span class="id"><a href="https://arxiv.org/abs/2603.18433">arXiv:2603.18433</a></span></div>
+<div class="ref"><span class="title">SecAlign: Defending Against Prompt Injection with Preference Optimization</span> — <span class="meta">model-level defense, &lt;10&nbsp;% injection success.</span> <span class="id"><a href="https://arxiv.org/abs/2410.05451">arXiv:2410.05451</a></span></div>
+<div class="ref"><span class="title">StruQ: Defending Against Prompt Injection with Structured Queries</span> — <span class="id"><a href="https://arxiv.org/abs/2402.06363">arXiv:2402.06363</a></span></div>
+<div class="ref"><span class="title">Caging the Agents: A Zero-Trust Security Architecture for Autonomous AI</span> — <span class="id"><a href="https://arxiv.org/abs/2603.17419">arXiv:2603.17419</a></span></div>
+
+<h3>Benchmarks / evaluation harnesses</h3>
+<div class="ref"><span class="title">★ MCP Security Bench (MSB): Benchmarking Attacks Against MCP in LLM Agents</span> — <span class="meta">12-attack taxonomy across the full tool-use pipeline; "Net Resilient Performance" metric.</span> <span class="id"><a href="https://arxiv.org/abs/2510.15994">arXiv:2510.15994</a></span></div>
+<div class="ref"><span class="title">MCP-SafetyBench: A Benchmark for Safety Evaluation of LLMs with Real-World MCP Servers</span> — <span class="id"><a href="https://arxiv.org/abs/2512.15163">arXiv:2512.15163</a></span></div>
+<div class="ref"><span class="title">MCP Pitfall Lab: Exposing Developer Pitfalls in MCP Tool-Server Security under Multi-Vector Attacks</span> — <span class="id"><a href="https://arxiv.org/abs/2604.21477">arXiv:2604.21477</a></span></div>
+<div class="ref"><span class="title">MCP-Universe: Benchmarking LLMs with Real-World MCP Servers</span> — <span class="meta">capability (not security) benchmark; 6 domains / 11 servers.</span> <span class="id"><a href="https://arxiv.org/abs/2508.14704">arXiv:2508.14704</a></span></div>
+<div class="ref"><span class="title">MCP-Bench: Benchmarking Tool-Using LLM Agents with Complex Real-World Tasks via MCP Servers</span> — <span class="id"><a href="https://arxiv.org/abs/2508.20453">arXiv:2508.20453</a></span></div>
+
+<footer class="foot">
+  Compiled from a paper-search sweep of arXiv (cs.CR / cs.AI), 2025–2026 · last updated 2026-05-30.<br>
+  Source PDFs are cached under <code>knowledge/_sources/</code>. This KB summarizes and attributes; always verify claims against the linked papers before citing in the thesis.
+</footer>
+
+</div>
+</body>
+</html>

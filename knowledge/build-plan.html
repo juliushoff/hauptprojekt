@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Build Plan — MCP Security KB</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top"><div class="inner">
+  <span class="brand">MCP Security KB</span>
+  <a href="index.html">Overview</a>
+  <a href="threat-model.html">Threat Model</a>
+  <a href="attack-vectors.html">Attack Vectors</a>
+  <a href="defenses.html">Defenses</a>
+  <a href="benchmarks-and-tools.html">Benchmarks &amp; Tools</a>
+  <a href="gap-analysis.html">Gap Analysis</a>
+  <a href="design-and-scope.html">Design &amp; Scope</a>
+  <a href="build-plan.html" class="active">Build Plan</a>
+  <a href="positioning-update.html">Positioning Update</a>
+</div></header>
+
+<div class="wrap">
+
+<h1>Build Plan</h1>
+<p class="lede">The implementation plan: how the modules connect, what each consumes and produces, concrete tech choices, the three technical gotchas that decide feasibility, and a dependency-ordered milestone sequence. (The module <em>catalogue</em> is in <a href="design-and-scope.html">Design &amp; Scope §7</a>; this is the <em>how to build it</em>.)</p>
+
+<h2>1. End-to-end data flow</h2>
+<pre>
+ TARGET MCP SERVER
+      │  (1) connect + enumerate  (MCP handshake over stdio/HTTP)
+      ▼
+╔══════════════════════ SCANNER  (Hauptprojekt, offline) ══════════════════════╗
+║  description+schema ──▶ [Declared analyzer] ─────▶ expected capability profile ║
+║  server source     ──▶ [Observed analyzer:static]─▶ observed capability profile║
+║  (opt) sandbox run ──▶ [Observed analyzer:dynamic]─▶ observed capability profile║
+║                                   │                                            ║
+║          expected  ⨯  observed ─▶ [Reconciler] ─▶ divergence + risk            ║
+║                                   │                                            ║
+║                                   ▼                                            ║
+║                          [Emitter] ─▶  CONTRACT.json  +  report                ║
+╚════════════════════════════════════│═════════════════════════════════════════╝
+                                      │  (the contract is the seam)
+                                      ▼
+╔══════════════════════ PROXY  (Masterarbeit, runtime) ════════════════════════╗
+║  client ──tool call──▶ [ PROXY ] ──▶ server (launched in sandbox per contract) ║
+║                            │                                                   ║
+║   every call (≈ms):  hash/drift · arg-schema · capability-envelope             ║
+║   selective (LLM):   intent-consistency · divergence-severity                  ║
+║   on response:       output screening (IPI)                                    ║
+║   drift:             watch manifest hash + tools/list_changed                  ║
+║   decision:          allow / block / human-review  +  audit log                ║
+╚═══════════════════════════════════════════════════════════════════════════════╝
+</pre>
+
+<h2>2. Component build specs</h2>
+<p>For each module: what goes in, what comes out, the technique/library, and the key decision to make.</p>
+
+<h3>Scanner (Hauptprojekt)</h3>
+<table>
+<thead><tr><th>Module</th><th>In → Out</th><th>Technique / lib</th><th>Key decision</th></tr></thead>
+<tbody>
+<tr><td><strong>MCP harness</strong></td><td>server endpoint → tool/resource list + manifests + schemas</td><td>official <code>mcp</code> Python SDK; spawn stdio or connect HTTP</td><td>stdio first (covers most local servers)</td></tr>
+<tr><td><strong>Declared analyzer</strong></td><td>description + JSON schema → expected capability profile</td><td>LLM structured-output (offline ⇒ a strong API model is fine) + schema parse</td><td>the <em>capability taxonomy</em> (keep small: network / filesystem / process-exec / secrets)</td></tr>
+<tr><td><strong>Observed analyzer (static)</strong></td><td>server source → observed capability profile</td><td>Python AST walker (imports/calls → capabilities) + taint from tool params; Bandit/Semgrep/CodeQL for depth</td><td>custom AST is simpler than CodeQL for MVP</td></tr>
+<tr><td><strong>Observed analyzer (dynamic, opt.)</strong></td><td>tool + probe inputs → syscall trace → capability profile</td><td>Docker + seccomp/eBPF; schema-based + LLM-generated probe inputs</td><td>defer past MVP; see gotcha #2</td></tr>
+<tr><td><strong>Reconciler</strong></td><td>expected ⨯ observed → divergence findings + risk</td><td>per-capability set comparison (observed ⊋ expected = "does more than it says")</td><td>severity model + thresholds</td></tr>
+<tr><td><strong>Emitter + CLI + report</strong></td><td>findings → contract.json + human report</td><td>your contract schema (JSON) + a CLI</td><td>contract schema = the interface to the proxy; design it carefully</td></tr>
+<tr><td><strong>Static threat detectors</strong></td><td>manifests/deps → findings</td><td>edit-distance/homoglyph (typosquat), regex/LLM (poisoning/PMA), secret &amp; CVE scan</td><td>run in the same pass</td></tr>
+</tbody>
+</table>
+
+<h3>Proxy (Masterarbeit)</h3>
+<table>
+<thead><tr><th>Module</th><th>In → Out</th><th>Technique / lib</th><th>Key decision</th></tr></thead>
+<tbody>
+<tr><td><strong>Interception proxy</strong></td><td>client⇄server JSON-RPC → forwarded / blocked / flagged</td><td>stdio interposition (sit between client &amp; server pipes) or HTTP proxy</td><td>stdio first; parse line-delimited JSON-RPC</td></tr>
+<tr><td><strong>Enforcement engine</strong></td><td>tool call + contract → allow/block</td><td>deterministic: hash check, JSON-schema validation, capability-envelope check</td><td>fast path on every call</td></tr>
+<tr><td><strong>Sandbox manager</strong></td><td>contract profile → confined server process</td><td>Docker/gVisor + seccomp + egress allow-list</td><td>this is where "no network/FS" is actually enforced (not in the JSON)</td></tr>
+<tr><td><strong>Intent-consistency</strong></td><td>(user task, tool call) → consistent?</td><td>small local model (NLI / 1–8B instruct via Ollama/vLLM)</td><td>triggering policy (sensitive ops only) + see gotcha #1</td></tr>
+<tr><td><strong>Drift monitor</strong></td><td>live manifest → drift alert</td><td>hash compare + subscribe to <code>tools/list_changed</code></td><td>re-derive contract on change</td></tr>
+<tr><td><strong>Output screening + audit</strong></td><td>tool response → clean/flag; all calls → log</td><td>existing IPI classifier; append-only signed log</td><td>integrate, don't build the classifier</td></tr>
+</tbody>
+</table>
+
+<h2>3. Tech stack (concrete)</h2>
+<ul>
+  <li><strong>Language:</strong> Python — the MCP SDK, static-analysis tooling, and ML ecosystem all live here.</li>
+  <li><strong>MCP:</strong> official <code>mcp</code> Python SDK for the harness and the proxy transport.</li>
+  <li><strong>Static analysis:</strong> custom AST walker (MVP) → Bandit / Semgrep / CodeQL (depth).</li>
+  <li><strong>Sandbox:</strong> Docker + seccomp; gVisor if you want stronger isolation; container network policy for egress.</li>
+  <li><strong>Models:</strong> scan-time declared-extraction → a strong API model (offline, latency-free). Runtime intent-check → a <em>small local</em> model (Ollama/vLLM) for latency, cost, and privacy.</li>
+  <li><strong>Contract:</strong> JSON + JSON Schema.</li>
+</ul>
+
+<h2>4. Three technical gotchas (decide these early)</h2>
+<div class="note warn">
+  <span class="t">#1 — Intent-consistency needs the user's task, which the proxy may not see</span>
+  The proxy sits at <em>client⇄server</em> and sees <em>tool calls</em>, not necessarily the original user prompt. To check "does this call match what the user asked," you need the task. Options: (a) the host/agent framework forwards the current task to the proxy (many expose it); (b) integrate the check into the host instead of a standalone network proxy; (c) in your <em>eval harness</em> you control everything, so you inject the intent. <strong>MVP: (c); productionizing needs (a).</strong> Flag this as a stated assumption.
+</div>
+<div class="note warn">
+  <span class="t">#2 — Source-available vs running-only servers</span>
+  Static analysis needs the <em>source</em>. Open-source Python servers give you that. Remote/binary-only servers don't — there you fall back to declared-only + dynamic probing + runtime monitoring. <strong>MVP: assume open-source Python servers.</strong> Note remote/binary as future work.
+</div>
+<div class="note warn">
+  <span class="t">#3 — Probe-input coverage (for dynamic analysis)</span>
+  Generating inputs that actually trigger a tool's code paths is non-trivial; use schema-based fuzzing + LLM-generated plausible inputs. Conditional malicious branches (rug-pulls keyed on time/flags) may not fire during probing — acknowledge the coverage limit, which is precisely why the runtime proxy complements the scanner.
+</div>
+
+<h2>5. Build order (dependency-sequenced milestones)</h2>
+<table>
+<thead><tr><th>Milestone</th><th>Deliverable</th><th>Phase</th></tr></thead>
+<tbody>
+<tr><td><strong>M0 — Plumbing</strong></td><td>MCP harness (connect/enumerate/pull manifests) + 3–5 real test servers + a tiny benign-vs-poisoned corpus</td><td rowspan="5"><span class="tag static">Hauptprojekt</span></td></tr>
+<tr><td><strong>M1 — Declared analyzer</strong></td><td>capability taxonomy + LLM extractor → expected profile</td></tr>
+<tr><td><strong>M2 — Observed (static)</strong></td><td>AST/sink capability detector → observed profile</td></tr>
+<tr><td><strong>M3 — Reconciler + contract + CLI</strong></td><td><strong>HP MVP</strong>: scan a poisoned server, show divergence, emit contract.json</td></tr>
+<tr><td><strong>M4 — Evaluation</strong></td><td>labeled corpus + P/R/F1 → <strong>completes Hauptprojekt</strong></td></tr>
+<tr><td><strong>M5 — Dynamic prober (opt.)</strong></td><td>sandbox + probe inputs strengthen the observed profile / handle no-source</td><td rowspan="5"><span class="tag runtime">Masterarbeit</span></td></tr>
+<tr><td><strong>M6 — Proxy core</strong></td><td>stdio interception + deterministic contract checks (hash/schema/envelope)</td></tr>
+<tr><td><strong>M7 — Sandbox enforcement</strong></td><td>run server under contract-derived seccomp/egress profile</td></tr>
+<tr><td><strong>M8 — Intent + drift + output</strong></td><td>small-LLM intent-consistency + rug-pull detection + IPI screening</td></tr>
+<tr><td><strong>M9 — Full evaluation</strong></td><td>MCPTox/MSB live + MCP-ITP subset + utility on MCP-Universe + NRP + latency/FP → <strong>completes Masterarbeit</strong></td></tr>
+</tbody>
+</table>
+
+<div class="note ok">
+  <span class="t">The de-risk line</span>
+  <strong>M0–M4 is the entire Hauptprojekt and needs no sandbox, no proxy, no runtime.</strong> It is self-contained, demonstrable, and novel on its own. Everything from M5 is additive depth for the thesis — so an early failure in the hard parts can never sink the Hauptprojekt.
+</div>
+
+<h2>6. Out of scope (for the MVP — state it explicitly)</h2>
+<ul>
+  <li>Non-Python servers; remote/binary-only servers (declared-only fallback).</li>
+  <li>Multi-server compositional analysis (cross-server shadowing across the full loaded set).</li>
+  <li>A full adversarial-robustness study of the detectors.</li>
+  <li>A fine-tuned specialized small model (stretch goal — see <a href="gap-analysis.html">Gap Analysis</a>).</li>
+</ul>
+
+<footer class="foot">
+  Implementation plan derived from the <a href="design-and-scope.html">design</a> + the 12 papers read in full. Tech choices are recommendations, not commitments — confirm the current MCP SDK/transport and <code>tools/list_changed</code> before M0.
+</footer>
+
+</div>
+</body>
+</html>

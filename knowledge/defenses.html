@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Defenses — MCP Security KB</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top"><div class="inner">
+  <span class="brand">MCP Security KB</span>
+  <a href="index.html">Overview</a>
+  <a href="threat-model.html">Threat Model</a>
+  <a href="attack-vectors.html">Attack Vectors</a>
+  <a href="defenses.html" class="active">Defenses</a>
+  <a href="benchmarks-and-tools.html">Benchmarks &amp; Tools</a>
+  <a href="gap-analysis.html">Gap Analysis</a>
+  <a href="design-and-scope.html">Design &amp; Scope</a>
+  <a href="build-plan.html">Build Plan</a>
+  <a href="positioning-update.html">Positioning Update</a>
+</div></header>
+
+<div class="wrap">
+
+<h1>Defenses</h1>
+<p class="lede">Mitigations organized as four defense layers, then mapped per-attack. The layering matters: it shows where your CLI scanner and proxy sit relative to everything else, and what they should <em>not</em> try to solve.</p>
+
+<h2>Four defense layers</h2>
+<div class="grid">
+  <div class="card"><span class="k">L1 · Design-time</span><h3>Static analysis &amp; vetting</h3><p>Scan manifests, descriptions, code, deps <em>before</em> a server is trusted. <strong>← Hauptprojekt lives here.</strong> Pattern + taint + NL-instruction detection, secret &amp; CVE scanning, identity checks.</p></div>
+  <div class="card"><span class="k">L2 · Supply-chain</span><h3>Identity &amp; integrity</h3><p>Signed manifests, verified publishers, namespace governance, version pinning, reproducible builds, checksum/signature on install. Makes typosquatting, installer spoofing, rug pulls <em>detectable</em>.</p></div>
+  <div class="card"><span class="k">L3 · Runtime</span><h3>Interception &amp; policy</h3><p>A proxy / guardian between client and server inspects calls &amp; responses, enforces least privilege, screens tool output, sandboxes execution. <strong>← Masterarbeit lives here.</strong></p></div>
+  <div class="card"><span class="k">L4 · Model-level</span><h3>Robust agents</h3><p>Train/align the model to resist injection (SecAlign, StruQ), separate data from instructions, prioritize the system channel (Prompt-CFI). Out of your build scope, but cite as the complementary track.</p></div>
+</div>
+
+<div class="note danger">
+  <span class="t">The "Firewall Fallacy" — read this before building guardrails</span>
+  MCP-TDP (<a href="https://arxiv.org/abs/2605.24069">2605.24069</a>) found that naïve prompt-based guardrails are not just ineffective against tool-description poisoning — they can be <em>counterproductive</em>, because adding more natural-language "be careful" instructions gives the attacker more surface to manipulate and can degrade utility. Implication: prefer <strong>deterministic / structural</strong> defenses (signatures, allow-lists, taint analysis, schema enforcement, sandboxing) over "ask the LLM nicely". A guardrail LLM is a layer, not the layer.
+</div>
+
+<h2>Per-attack mitigation map</h2>
+<table>
+<thead><tr><th>Attack</th><th>Primary mitigation</th><th>Layer</th></tr></thead>
+<tbody>
+<tr><td>Tool Poisoning</td><td>Static NL-instruction scan of metadata; strip/declarative-ize descriptions before sending to model; runtime anomaly detection (compute tool doing network/FS I/O)</td><td>L1 + L3</td></tr>
+<tr><td>Preference Manipulation</td><td>Metadata auditing for persuasive phrasing; randomized tool ordering; trusted labels; preference-robust models</td><td>L1 + L4</td></tr>
+<tr><td>Cross-Server Shadowing</td><td>Strict namespace isolation; fully-qualified tool names; conflict warnings on load; flag descriptions referencing foreign tools</td><td>L1 + L3</td></tr>
+<tr><td>Tool Name Conflict / Typosquatting</td><td>Cryptographically verifiable server identity (signed manifests binding namespace→publisher); edit-distance/homoglyph checks; prefer verified servers</td><td>L2</td></tr>
+<tr><td>Command Injection / Backdoor</td><td>Static taint analysis; reproducible builds + signing + checksums; input sanitization; runtime syscall/anomaly monitoring</td><td>L1 + L2 + L3</td></tr>
+<tr><td>Installer Spoofing</td><td>Signature/checksum verification from trusted registry; show source/version/signature; isolated secure-install mode; reputation scoring</td><td>L2</td></tr>
+<tr><td>Indirect Prompt Injection</td><td>Treat <em>all</em> tool output as adversarial; output screening/sanitization at the proxy; data/instruction separation (StruQ); injection-robust model (SecAlign)</td><td>L3 + L4</td></tr>
+<tr><td>Rug Pulls</td><td>Version pinning; pin &amp; diff a hash of tool manifest + code; update transparency; signature verification on update; runtime drift alerts</td><td>L2 + L3</td></tr>
+<tr><td>Credential Theft</td><td>Secret managers / encrypted keystores instead of plaintext config; restrictive FS permissions; automatic rotation &amp; token expiry &amp; scoping</td><td>L1 (detect) + ops</td></tr>
+<tr><td>Sandbox Escape / Over-Privilege</td><td>Run servers in restricted sandboxes; least-privilege capability grants (MiniScope); egress filtering; declared-vs-used capability audit</td><td>L1 (audit) + L3 (enforce)</td></tr>
+<tr><td>Tool Chaining Abuse</td><td>Cross-tool data-flow policy at the proxy; taint-track sensitive data across calls; rate/scope limits; require confirmation on sensitive sinks</td><td>L3</td></tr>
+<tr><td>Unauthorized Access / Session</td><td>Proper auth on remote MCP (OAuth done right — see <a href="https://arxiv.org/abs/2605.22333">2605.22333</a>); session binding; anti-replay; impersonation checks</td><td>L2 + L3</td></tr>
+<tr><td>Vulnerable Versions / Config Drift</td><td>SBOM + CVE scanning; config baseline diffing; periodic re-scan</td><td>L1</td></tr>
+</tbody>
+</table>
+
+<h2>Notable concrete defense proposals (to cite / compare)</h2>
+<ul>
+  <li><strong>ETDI</strong> (<a href="https://arxiv.org/abs/2506.01333">2506.01333</a>) — OAuth-enhanced, cryptographically-signed tool definitions + policy-based access control; directly targets tool squatting &amp; rug pulls. A good L2 baseline to discuss.</li>
+  <li><strong>MCP Guardian</strong> (<a href="https://arxiv.org/abs/2504.12757">2504.12757</a>) — a security-first layer (auth, rate-limiting, logging, scanning) wrapping MCP traffic; closest "guardian" framing to your proxy.</li>
+  <li><strong>MiniScope</strong> (<a href="https://arxiv.org/abs/2512.11147">2512.11147</a>) / over-privilege auditing (<a href="https://arxiv.org/abs/2603.21641">2603.21641</a>) — least-privilege authorization for tool-calling agents.</li>
+  <li><strong>Reactive Self-Correction</strong> (MCP-TDP) — agent detects &amp; reverts its own malicious action <em>post-execution</em>; interesting but reactive (damage may already be done) — contrast with proactive interception.</li>
+  <li><strong>Prompt Control-Flow Integrity</strong> (<a href="https://arxiv.org/abs/2603.18433">2603.18433</a>) — priority-aware runtime defense enforcing that system/user instructions outrank injected ones.</li>
+  <li><strong>SecAlign</strong> (<a href="https://arxiv.org/abs/2410.05451">2410.05451</a>), <strong>StruQ</strong> (<a href="https://arxiv.org/abs/2402.06363">2402.06363</a>) — model-level injection robustness; SecAlign reports &lt;10&nbsp;% injection success.</li>
+</ul>
+
+<div class="note ok">
+  <span class="t">Design principle for both your artifacts</span>
+  Favor <strong>deterministic, structural, verifiable</strong> controls (signatures, schemas, allow-lists, taint graphs, sandboxes) as the backbone; use an LLM judge only as an <em>additional</em> recall layer with calibrated thresholds — never as the sole gate. Always report the security/utility trade-off (NRP-style), because over-blocking is the failure mode reviewers will probe.
+</div>
+
+<footer class="foot">
+  Mitigations consolidated from Hou et al. §5 plus the cited defense papers. Layer assignment is this KB's framing for project scoping.
+</footer>
+
+</div>
+</body>
+</html>

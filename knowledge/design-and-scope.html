@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Design, Feasibility &amp; Scope — MCP Security KB</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top"><div class="inner">
+  <span class="brand">MCP Security KB</span>
+  <a href="index.html">Overview</a>
+  <a href="threat-model.html">Threat Model</a>
+  <a href="attack-vectors.html">Attack Vectors</a>
+  <a href="defenses.html">Defenses</a>
+  <a href="benchmarks-and-tools.html">Benchmarks &amp; Tools</a>
+  <a href="gap-analysis.html">Gap Analysis</a>
+  <a href="design-and-scope.html" class="active">Design &amp; Scope</a>
+  <a href="build-plan.html">Build Plan</a>
+  <a href="positioning-update.html">Positioning Update</a>
+</div></header>
+
+<div class="wrap">
+
+<h1>Design, Feasibility &amp; Scope</h1>
+<p class="lede">How a behavioral-capability-contract system actually works, whether it's buildable by one student, the latency budget, and a concrete Hauptprojekt / Masterarbeit split. The <strong>contract</strong> is the load-bearing artifact: the scanner produces it, the proxy consumes it.</p>
+
+<h2>1. The latency budget (why the split is natural)</h2>
+<p>Two components, two completely different timing regimes:</p>
+<table>
+<thead><tr><th>Component</th><th>When it runs</th><th>Latency budget</th><th>Consequence</th></tr></thead>
+<tbody>
+<tr><td><strong>Scanner</strong> (HP)</td><td>Offline, pre-deployment, once per server/version</td><td><strong>None</strong> — seconds to minutes per tool is fine (VIPER: 926 s/server)</td><td>Can afford heavy static analysis, sandbox probing, and LLM passes.</td></tr>
+<tr><td><strong>Proxy</strong> (MA)</td><td>Online, on every tool call</td><td><strong>Tight but relative</strong> — must be small next to the agent loop (seconds) &amp; API round-trips (10–100 ms)</td><td>Deterministic checks must be ~ms; the LLM check must be selective, not per-call.</td></tr>
+</tbody>
+</table>
+
+<div class="note ok">
+  <span class="t">Measured overheads from the literature (your latency targets)</span>
+  Deterministic gateways are effectively free: <strong>Prompt-CFI 0.04 ms</strong>, <strong>MCP Guardian 3–4 ms</strong>, <strong>AEGIS 8.3 ms</strong> (regex+schema, 100% block on known attacks), <strong>MiniScope 1–6 %</strong>, <strong>gVisor sandbox 2–5 ms TCP</strong>. The small model is the cost center: <strong>SentinelAgent's NLI ~20 ms/step</strong>; a small generative judge is 50 ms–2 s. ⇒ Run deterministic on 100% of calls, LLM on a small fraction.
+</div>
+
+<h3>Keeping the proxy fast — four levers</h3>
+<ul>
+  <li><strong>Tier it.</strong> Deterministic contract checks first; escalate to the LLM only on ambiguity or sensitive capability (write / exec / network / PII).</li>
+  <li><strong>Gate vs. audit.</strong> Block destructive calls synchronously; for read-only/low-risk calls, let the LLM check run <em>asynchronously</em> (flag after the fact) so it's off the critical path.</li>
+  <li><strong>Cache.</strong> Memoize verdicts for repeated (tool, arg-shape, intent) patterns.</li>
+  <li><strong>Right-size the model.</strong> A fine-tuned small classifier/NLI (cf. SentinelAgent's 328 MB model) beats a big generative judge on both latency and the Firewall-Fallacy risk.</li>
+</ul>
+
+<h2>2. The artifact at the centre: the capability contract</h2>
+<p>A per-tool, machine-readable description of <em>what the tool is allowed to do</em>, reconciling what it <strong>declares</strong> (description + schema) against what it <strong>actually does</strong> (static + dynamic analysis). Sketch:</p>
+<pre>{
+  "tool": "github.create_issue",
+  "server": "github-mcp",
+  "manifest_hash": "sha256:9f2c…",          // drift / rug-pull anchor
+  "declared": {                              // inferred at scan time (LLM + schema)
+    "summary": "creates a GitHub issue",
+    "expected_capabilities": {
+      "network":  ["api.github.com"],        // allowed egress
+      "filesystem": "none",
+      "process_exec": "none",
+      "secrets":  ["GITHUB_TOKEN"]
+    }
+  },
+  "observed": {                              // from static sink analysis + sandbox probe
+    "network": ["api.github.com"],
+    "filesystem": "none",
+    "process_exec": "none"
+  },
+  "divergence": [],                          // empty ⇒ behaves as declared
+  "risk": "low",
+  "enforcement": {                           // handed to the proxy
+    "sandbox_profile": { "egress_allow": ["api.github.com"], "fs": "deny", "exec": "deny" },
+    "arg_schema": { "...": "JSON Schema" },
+    "intent_check": "on_sensitive"           // when to spend the LLM
+  }
+}</pre>
+<p><strong>Divergence</strong> is the core signal: a "calculator" whose <code>observed.network</code> is non-empty, or a "read" tool with <code>observed.filesystem: write</code>, is flagged regardless of how the payload is coded — this is what defeats the obfuscation that beats pattern-matchers (MCP-ITP at 0.3% detection).</p>
+
+<h2>3. How the scanner works (Hauptprojekt)</h2>
+<ol>
+  <li><strong>Enumerate.</strong> Speak MCP (JSON-RPC 2.0 over stdio / Streamable HTTP), do the handshake, list tools/resources/prompts and pull their manifests + schemas.</li>
+  <li><strong>Declared profile.</strong> Map each tool's (description + input/output schema) → an <em>expected</em> capability profile. Small LLM + schema parsing; offline, so cost is irrelevant.</li>
+  <li><strong>Observed profile.</strong> (a) <em>Static:</em> parse server source, find sinks (network/FS/exec/SQL) and taint from tool params — the VIPER/<code>mcp-sec-audit</code> technique. (b) <em>Optional dynamic:</em> run the tool in an instrumented sandbox (seccomp/eBPF/Docker) with probe inputs, record syscalls.</li>
+  <li><strong>Reconcile.</strong> Declared vs observed ⇒ divergence findings + a pinned contract artifact.</li>
+  <li><strong>Also flag the static-only threats</strong> (typosquatting, PMA phrasing, cross-tool refs, plaintext secrets, vulnerable deps) in the same pass — see the <a href="attack-vectors.html">scanner spec</a>.</li>
+  <li><strong>Emit</strong> a report (human) + the contract JSON (machine, for the proxy).</li>
+</ol>
+
+<h2>4. How the proxy works (Masterarbeit)</h2>
+<p>A man-in-the-middle on the MCP channel (MCP Guardian already shows this by overriding the tool-invocation call; gateway/proxy products exist). Per tool call:</p>
+<pre>client ──tool call──▶ [ PROXY ] ──▶ server (sandboxed per contract)
+                         │
+   1. deterministic (≈ms, every call):
+      • manifest hash == pinned?        → drift / rug-pull
+      • args valid vs contract schema?  → out-of-scope params
+      • op within capability envelope?  → enforced by sandbox profile
+   2. semantic (small LLM, selective):
+      • intent-consistency: does this call match the user's request?   (catches MCP-ITP)
+      • response screening: injection hidden in tool output?           (catches IPI)
+   3. decision: allow / block / human-review  +  append to audit log</pre>
+<p>The three things the proxy adds that the scanner structurally cannot:</p>
+<ul>
+  <li><strong>Drift / rug-pull detection</strong> — compare the live manifest hash to the pinned one; subscribe to MCP's <code>tools/list_changed</code> notification and re-derive on change. <span class="muted">(verify the exact notification name in the current spec.)</span></li>
+  <li><strong>Intent-consistency</strong> — the small-LLM check that catches a legitimate high-privilege tool being driven against the user's request (the MCP-ITP class static scanners miss at 0.3%).</li>
+  <li><strong>Output screening</strong> — treat tool responses as untrusted and scan for indirect prompt injection.</li>
+</ul>
+
+<h2>5. Are we capable of this? — honest feasibility</h2>
+<p>Yes, because <strong>every brick already has a working precedent</strong> — you're composing known techniques in a novel configuration (which is exactly the right shape for a thesis), not inventing primitives.</p>
+<table>
+<thead><tr><th>Tractable (low risk)</th><th>Medium</th><th>Hard (the real risks)</th></tr></thead>
+<tbody>
+<tr>
+  <td>Proxying MCP (JSON-RPC, SDKs exist) · manifest/schema parsing · schema validation · hash-pinning &amp; drift · lexical metadata scans · building a labeled corpus from MCPTox/MSB · measuring P/R + latency</td>
+  <td>LLM "description → expected capability profile" (prompt + eval) · intent-consistency prompt design · seccomp/Docker sandbox for dynamic probing · static sink/taint analysis (lean on CodeQL/Bandit)</td>
+  <td>Dynamic execution of tools needing <strong>live credentials / external services</strong> (VIPER &amp; <code>mcp-sec-audit</code> both hit this wall) · keeping false-positives low on capability derivation · adversarial robustness</td>
+</tr>
+</tbody>
+</table>
+<div class="note warn">
+  <span class="t">De-risked MVP (so the project is bounded)</span>
+  Don't try to cover all 16 threats or all tools. Scope to: <strong>(1) Python MCP servers</strong>, <strong>(2) three capability classes</strong> — network, filesystem, process-exec, <strong>(3) the high-value threats</strong> — tool poisoning, over-privilege, rug-pull, implicit-poisoning/intent. For the sandbox-credential wall, start with <strong>mocked / recorded dependencies</strong> and tools that run offline; solving the live-credential case cleanly is itself a contribution, not a prerequisite.
+</div>
+
+<h2>6. The Hauptprojekt / Masterarbeit split</h2>
+<p>The contract is the interface: HP <em>produces</em> it, MA <em>consumes</em> it. Clean dependency, shared threat model, complementary halves.</p>
+<table>
+<thead><tr><th></th><th>Hauptprojekt — the Scanner</th><th>Masterarbeit — the Proxy</th></tr></thead>
+<tbody>
+<tr><td><strong>Mode</strong></td><td>Static, offline, pre-deployment</td><td>Runtime, online, on the call path</td></tr>
+<tr><td><strong>Latency</strong></td><td>Irrelevant</td><td>Core engineering constraint</td></tr>
+<tr><td><strong>Deliverable</strong></td><td>CLI that derives a capability contract + flags declared-vs-observed divergence + the static threats</td><td>Proxy that enforces the contract, detects drift/rug-pull, adds intent-consistency + output screening</td></tr>
+<tr><td><strong>Catches</strong></td><td>Poisoning text, over-privilege, command-injection sinks, typosquatting, secrets, vuln deps</td><td>Rug-pulls, indirect prompt injection, implicit poisoning (intent), out-of-scope params at runtime</td></tr>
+<tr><td><strong>Evaluation</strong></td><td>Detection P/R/F1 on poisoned-vs-benign corpus. Small results OK — originality is the divergence framing + contract emission.</td><td>Attack-resistance on MCPTox/MSB + implicit-poisoning subset; utility on MCP-Universe; <strong>NRP</strong> + latency overhead.</td></tr>
+<tr><td><strong>Main risk</strong></td><td>Capability-derivation accuracy; the sandbox wall</td><td>Latency of the semantic layer; false positives breaking real workflows</td></tr>
+</tbody>
+</table>
+
+<div class="note ok">
+  <span class="t">Why this is a strong thesis shape</span>
+  HP is bounded (offline, no enforcement, no latency) → deliverable with modest results, yet original (no one derives a behavioral contract + checks declared-vs-observed). MA inherits a working scanner and tackles the harder, empirical, latency-bound enforcement + the runtime-only threats → enough substance for the thesis. One threat model, one artifact (the contract) connecting them.
+</div>
+
+<h2>7. What we actually build (it's a lot)</h2>
+<p>"Reuse" earlier meant <em>algorithms/libraries</em>, not <em>software</em>. The scanner and the proxy are original systems written from scratch — they don't exist today. We reuse a base LLM, a sandbox primitive, an MCP SDK, and a taint engine the way a compiler reuses a parser: as bricks. Everything that makes this a behavioral-contract MCP security tool is ours.</p>
+
+<h3>Hauptprojekt — the Scanner (modules you write)</h3>
+<table>
+<thead><tr><th>Module</th><th>Build / Library</th><th>What it is</th></tr></thead>
+<tbody>
+<tr><td><strong>MCP harness</strong></td><td>Build (uses SDK)</td><td>Connects to any MCP server (stdio + HTTP), handshake, enumerate tools/resources/prompts, pull manifests &amp; schemas.</td></tr>
+<tr><td><strong>Declared-capability extractor</strong></td><td>Build</td><td>Your capability taxonomy + the logic (LLM + schema parsing) turning a tool's description/schema into a structured <em>expected</em> profile.</td></tr>
+<tr><td><strong>Observed-capability analyzer (static)</strong></td><td>Build (wraps CodeQL/Bandit)</td><td>The MCP-specific rules mapping code/sinks→capabilities and taint from tool params. You write the glue + rules.</td></tr>
+<tr><td><strong>Sandbox prober (dynamic, optional)</strong></td><td>Build (uses seccomp/Docker)</td><td>Probe-input generation + a syscall-trace→capability parser.</td></tr>
+<tr><td><strong>Reconciliation / divergence engine</strong></td><td>Build — <em>core</em></td><td>Diffs declared vs observed, computes divergence, assigns risk. The heart of the contribution.</td></tr>
+<tr><td><strong>Contract emitter</strong></td><td>Build</td><td>Your contract schema + serializer (consumed by the proxy).</td></tr>
+<tr><td><strong>Static threat detectors</strong></td><td>Build</td><td>Typosquatting (edit-distance/homoglyph), poisoning/PMA phrasing, cross-tool refs, plaintext secrets, vuln-dep lookup.</td></tr>
+<tr><td><strong>CLI + report + eval harness</strong></td><td>Build</td><td>User-facing tool + a labeled poisoned-vs-benign corpus + P/R/F1 scripts.</td></tr>
+</tbody>
+</table>
+
+<h3>Masterarbeit — the Proxy (modules you write)</h3>
+<table>
+<thead><tr><th>Module</th><th>Build / Library</th><th>What it is</th></tr></thead>
+<tbody>
+<tr><td><strong>MCP interception proxy</strong></td><td>Build</td><td>Man-in-the-middle on the MCP channel (stdio interposition / HTTP proxy); parse JSON-RPC; allow/block/modify/flag calls &amp; responses.</td></tr>
+<tr><td><strong>Contract enforcement engine</strong></td><td>Build — <em>core</em></td><td>Loads the contract, runs the deterministic per-call checks (hash/drift, schema, capability envelope), drives the sandbox profile.</td></tr>
+<tr><td><strong>Sandbox manager</strong></td><td>Build (uses seccomp/gVisor)</td><td>Launches the server under a contract-derived egress/syscall profile.</td></tr>
+<tr><td><strong>Intent-consistency module</strong></td><td>Build — <em>core</em></td><td>The small-LLM check: (user request, tool call) → consistent? + the policy for when to invoke it + caching.</td></tr>
+<tr><td><strong>Drift / rug-pull monitor</strong></td><td>Build</td><td>Watches manifest hash + <code>tools/list_changed</code>, re-derives, alerts.</td></tr>
+<tr><td><strong>Output screening + audit log</strong></td><td>Build (integrates IPI classifier)</td><td>Treat responses as untrusted; tamper-evident logging.</td></tr>
+<tr><td><strong>Evaluation</strong></td><td>Build</td><td>Live runs vs MCPTox/MSB; utility on MCP-Universe; latency/FP measurement; NRP reporting.</td></tr>
+</tbody>
+</table>
+
+<div class="note ok">
+  <span class="t">Minimum viable contribution (so you're never blocked)</span>
+  The smallest HP that is still a real, novel, demonstrable system: <strong>MCP harness + declared-capability extractor + static observed-capability + reconciliation/divergence + contract emitter + a small eval.</strong> No dynamic sandbox required. That alone is original software that does not exist — everything else (dynamic probing, the whole proxy) is additive depth for the Masterarbeit.
+</div>
+
+<div class="note">
+  <span class="t">The contribution, stated for an examiner</span>
+  Not "a new model" but "a system + a method": behavioral capability contracts for MCP (declared-vs-observed divergence) and contract-grounded per-call intent-consistency — built from scratch — plus the first empirical evidence of whether it catches the attacks static scanners miss, at what latency and false-positive cost. The system <em>is</em> the deliverable.
+</div>
+
+<footer class="foot">
+  Design synthesis grounded in the 12 papers read in full (see <a href="gap-analysis.html">Gap Analysis</a>). Latency figures are each paper's reported overhead. Confirm MCP transport &amp; notification details against the current spec before building.
+</footer>
+
+</div>
+</body>
+</html>
