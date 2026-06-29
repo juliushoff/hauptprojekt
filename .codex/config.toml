@@ -1,0 +1,15 @@
+[mcp_servers.paper_search_mcp]
+command = "uv"
+args = [
+  "run",
+  "--directory",
+  "/Users/juliushoffmann/paper-search-mcp",
+  "-m",
+  "paper_search_mcp.server"
+]
+startup_timeout_sec = 30
+tool_timeout_sec = 120
+
+# Optional: add this later if you want Unpaywall support.
+# [mcp_servers.paper_search_mcp.env]
+# PAPER_SEARCH_MCP_UNPAYWALL_EMAIL = "deine-email@example.com"

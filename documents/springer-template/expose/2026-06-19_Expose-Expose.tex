@@ -1,0 +1,193 @@
+%Version 3.1 December 2024
+% See section 11 of the User Manual for version history
+%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%%                                                                 %%
+%% Please do not use \input{...} to include other tex files.       %%
+%% Submit your LaTeX manuscript as one .tex document.              %%
+%%                                                                 %%
+%% All additional figures and files should be attached             %%
+%% separately and not embedded in the \TeX\ document itself.       %%
+%%                                                                 %%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+\documentclass[pdflatex,sn-mathphys-num]{sn-jnl}% Math and Physical Sciences Numbered Reference Style
+
+\usepackage{graphicx}%
+\usepackage{multirow}%
+\usepackage{amsmath,amssymb,amsfonts}%
+\usepackage{amsthm}%
+\usepackage{mathrsfs}%
+\usepackage[title]{appendix}%
+\usepackage{xcolor}%
+\usepackage{textcomp}%
+\usepackage{manyfoot}%
+\usepackage{booktabs}%
+\usepackage{algorithm}%
+\usepackage{algorithmicx}%
+\usepackage{algpseudocode}%
+\usepackage{listings}%
+
+\theoremstyle{thmstyleone}%
+\newtheorem{theorem}{Theorem}%
+\newtheorem{proposition}[theorem]{Proposition}%
+
+\theoremstyle{thmstyletwo}%
+\newtheorem{example}{Example}%
+\newtheorem{remark}{Remark}%
+
+\theoremstyle{thmstylethree}%
+\newtheorem{definition}{Definition}%
+
+\raggedbottom
+
+\begin{document}
+
+\begin{center}
+{\LARGE\bfseries Expos\'e: Hauptprojekt / Masterarbeit\par}
+\vspace{6pt}
+{\Large\bfseries Behavioral Capability Contracts f\"ur MCP-basierte LLM-Agenten\par}
+\vspace{18pt}
+{\large Julius Hoffmann\par}
+\vspace{6pt}
+{Hochschule f\"ur angewandte Wissenschaften Hamburg\par}
+{Arbeitsgruppe TeSSA: Sicherheit und Zuverl\"assigkeit\par}
+{Betreuerin: Prof. Dr. Bettina Buth\par}
+\end{center}
+\vspace{12pt}
+
+\section{Ausgangslage und Motivation}\label{sec:motivation}
+
+LLM-Agenten werden zunehmend nicht nur als Chat-Systeme, sondern als handlungsf\"ahige Softwarekomponenten eingesetzt. \"Uber Tool-Calling-Schnittstellen k\"onnen sie Dateien lesen und schreiben, Netzwerkdienste ansprechen, Shell-Kommandos ausf\"uhren oder Anwendungen steuern. Das Model Context Protocol (MCP) standardisiert diese Verbindung zwischen Host, Client und Tool-Server. Dadurch k\"onnen Agenten Werkzeuge dynamisch entdecken und auf Basis von Werkzeugnamen, Beschreibungen und Schemas ausw\"ahlen.
+
+Diese Flexibilit\"at verschiebt die Sicherheitsgrenze. In klassischer Softwareanalyse steht h\"aufig Code im Vordergrund. Bei MCP-basierten Agenten werden jedoch auch nat\"urlichsprachliche Beschreibungen, JSON-Schemas und Tool-Ausgaben zu sicherheitsrelevanten Steuerinformationen. Ein Tool kann in seiner Beschreibung harmlos erscheinen, aber im Code weitergehende F\"ahigkeiten besitzen; eine Tool-Ausgabe kann indirekte Instruktionen enthalten; oder ein zun\"achst legitimes Tool kann nachtr\"aglich sein Verhalten \"andern. Aktuelle Arbeiten zu MCP Security zeigen deshalb Angriffe wie Tool Poisoning, Tool Squatting, Rug-Pulls, \"uberprivilegierte Tools und indirekte Prompt Injection \cite{hou2025mcp,firstglance2025,mcptox2025,mcpitp2026}.
+
+Die zentrale Motivation dieses Projekts ist, diese L\"ucke nicht nur als Erkennungsproblem, sondern als Contract- und Enforcement-Problem zu betrachten: Ein Agent sollte ein Tool nicht nur aufgrund dessen Beschreibung verwenden, sondern anhand einer expliziten, \"uberpr\"ufbaren Grenze dessen, was dieses Tool tun darf.
+
+\section{Problemstellung}\label{sec:problem}
+
+MCP-Tools beschreiben ihre Funktion \"uber Metadaten und Schemas. Diese Deklaration ist f\"ur den Agenten handlungsleitend, aber sie ist nicht automatisch vertrauensw\"urdig. Daraus ergeben sich drei Kernprobleme:
+
+\begin{enumerate}
+\item \textbf{Deklaration und Verhalten k\"onnen auseinanderfallen.} Ein Tool kann laut Beschreibung lesen, aber tats\"achlich schreiben; lokal arbeiten, aber Netzwerkzugriffe ausf\"uhren; oder sensitive Daten an unerwartete Ziele senden. Erste gro{\ss}e Messungen deuten darauf hin, dass solche Beschreibung-Code-Inkonsistenzen ein praktisches Problem im MCP-\"Okosystem sind \cite{misleading2026}.
+\item \textbf{Preflight-Analyse und Live-Beobachtung haben unterschiedliche Reichweite.} Tool Poisoning in Beschreibungen, offensichtliche Secrets oder Code-Sinks sind bereits vor einem produktiven Agentenlauf erkennbar. Ob ein Server seine Tool-Liste nachtr\"aglich \"andert, ob eine Tool-Ausgabe den Agenten zu weiteren Aufrufen lenkt oder ob ein legitimes Tool gegen die Nutzerintention eingesetzt wird, zeigt sich dagegen erst im laufenden MCP-Kanal \cite{mcpitp2026}.
+\item \textbf{Generische Guardrails sind zu grob.} Ein Proxy oder Gateway kann Tool-Aufrufe loggen, Schemas validieren oder einfache Regeln anwenden. Ohne einen tool-spezifischen Contract bleibt aber unklar, welches Verhalten f\"ur ein konkretes Tool legitim ist \cite{mcpguardian2025,miniscope2025}.
+\end{enumerate}
+
+Das Projekt untersucht deshalb, welche Capability-Signale bereits statisch oder vor der eigentlichen Nutzung ableitbar sind, welche erst bei gestarteten oder instrumentiert ausgef\"uhrten MCP-Servern sichtbar werden und wie beide Perspektiven in einem Capability Contract zusammengef\"uhrt werden k\"onnen, der sp\"ater zur Laufzeit durchsetzbar ist.
+
+\section{Zielsetzung}\label{sec:goals}
+
+Das Gesamtziel ist die Konzeption und prototypische Umsetzung eines zweistufigen Sicherheitsansatzes f\"ur MCP-basierte LLM-Agenten:
+
+\begin{itemize}
+\item \textbf{Hauptprojekt:} Entwicklung eines offline nutzbaren CLI-Scanners, der MCP-Server anbindet, deren angebotene Tools und Schemas ausliest, erwartete Tool-F\"ahigkeiten aus Metadaten ableitet, beobachtbare F\"ahigkeiten durch statische Analyse und begrenzte instrumentierte Ausf\"uhrung erfasst und Abweichungen als Findings sowie als Capability Contract ausgibt. Zugleich soll das Hauptprojekt herausarbeiten, welche Angriffsklassen durch statische Preflight-Signale gut adressierbar sind und welche erst durch Live-Beobachtung eines gestarteten MCP-Servers sichtbar werden.
+\item \textbf{Masterarbeit:} Entwicklung eines Laufzeit-Proxys, der diesen Contract auf echten Tool-Aufrufen erzwingt, Drift erkennt und bei sensitiven Operationen semantische Konsistenz zwischen Nutzerintention und Tool-Aufruf pr\"uft.
+\end{itemize}
+
+Das Hauptprojekt liefert damit ein eigenst\"andiges Ergebnis und zugleich die Grundlage f\"ur die Masterarbeit. Der Contract ist die Schnittstelle zwischen beiden Phasen.
+
+\section{Forschungsfragen}\label{sec:questions}
+
+F\"ur das Hauptprojekt stehen folgende Fragen im Vordergrund:
+
+\begin{enumerate}
+\item Wie lassen sich aus MCP-Tool-Beschreibungen und JSON-Schemas erwartete F\"ahigkeiten wie Dateisystemzugriff, Netzwerkzugriff, Prozessausf\"uhrung oder Secret-Verwendung ableiten?
+\item Wie lassen sich beobachtbare F\"ahigkeiten eines MCP-Servers f\"ur einen ersten Prototyp durch Codeanalyse und durch begrenzte instrumentierte Ausf\"uhrung erkennen?
+\item Welche MCP-Angriffsvektoren hinterlassen bereits vor der Nutzung belastbare statische Signale, und welche ben\"otigen Live-Informationen wie Tool-Aufruf, Nutzerintention, Tool-Ausgabe oder Drift \"uber die Zeit?
+\item Welche Formen von deklarierter-vs.-beobachteter Divergenz sind praktisch relevant, wie k\"onnen sie als Risiko bewertet werden und wie muss ein Capability Contract strukturiert sein, damit er sp\"ater durchsetzbar wird?
+\end{enumerate}
+
+F\"ur die Masterarbeit werden diese Fragen erweitert:
+
+\begin{enumerate}
+\item Wie kann ein MCP-Proxy den Contract mit geringer Latenz auf Tool-Aufrufe anwenden?
+\item Welche im Hauptprojekt identifizierten runtime-abh\"angigen Angriffe lassen sich durch Proxy, Drift-Pr\"ufung oder Intent-Check reduzieren?
+\item Wann ist eine semantische Intent-Pr\"ufung notwendig, und wie kann sie eingesetzt werden, ohne die Nutzbarkeit stark zu beeintr\"achtigen?
+\end{enumerate}
+
+\section{Methodischer Ansatz und Projektzuschnitt}\label{sec:method}
+
+Der methodische Kern ist der Vergleich zwischen \emph{declared capabilities} und \emph{observed capabilities}. Declared capabilities beschreiben, was ein Tool laut Beschreibung und Schema tun soll. Observed capabilities werden zweigeteilt betrachtet: als statische Preflight-Signale im Server-Code und als Live-Signale eines gestarteten oder instrumentiert ausgef\"uhrten MCP-Servers. Aus diesem Vergleich soll ein Capability Contract entstehen, der die zul\"assige Verhaltensgrenze eines Tools beschreibt.
+
+Im Hauptprojekt wird dieser Ansatz zun\"achst als lokal nutzbarer Scanner mit begrenzter Live-Beobachtung untersucht. Der Prototyp soll lokale MCP-Server anbinden, ihre Tool-Schnittstellen erfassen, Tool-Beschreibungen und Schemas auswerten, beobachtbare F\"ahigkeiten im Code erkennen, ausgew\"ahlte Live-Signale eines gestarteten Servers erfassen und daraus Findings sowie einen maschinenlesbaren Contract erzeugen. Der Umfang bleibt bewusst begrenzt: Eine kleine Capability-Taxonomie mit Dateisystem, Netzwerk, Prozessausf\"uhrung und Secrets reicht f\"ur den ersten Nachweis aus. Gleichzeitig soll der Scanner nicht nur Findings liefern, sondern die Grenze zwischen statischer Erkennbarkeit und Live-Erkennbarkeit markieren: Tool Poisoning in Metadaten, \"uberprivilegierte Capabilities oder offensichtliche Code-Sinks sind eher statisch adressierbar; Rug-Pulls, indirekte Prompt Injection, Tool-Chaining-Missbrauch oder Intent-Mismatches ben\"otigen dagegen Informationen aus dem laufenden MCP-Kanal. Verwandte Arbeiten wie \emph{mcp-sec-audit}, Connor und VIPER-MCP zeigen, dass statische und instrumentierte Analysen f\"ur MCP-Server praktisch umsetzbar sind, adressieren aber jeweils andere Ziele: Sie liefern Risiko-Reports, Taint-Findings oder einmalige Malicious/Benign-Verdicts, nicht einen deklarationsbezogenen Capability Contract, der statische und live beobachtete Signale als Grundlage f\"ur sp\"atere Enforcement-Entscheidungen zusammenf\"uhrt \cite{mcpaudit2026,connor2026,viper2026}.
+
+Die Masterarbeit kann diesen Contract anschlie{\ss}end in eine Laufzeitperspektive \"uberf\"uhren. Ein MCP-Proxy w\"urde Tool-Aufrufe gegen den Contract pr\"ufen, Drift oder Rug-Pulls gegen\"uber dem urspr\"unglich analysierten Zustand erkennen und bei sensitiven Operationen zus\"atzlich die Konsistenz zwischen Nutzerintention und Tool-Aufruf bewerten. Damit verschiebt sich der Fokus von der einmaligen Analyse auf die Frage, ob ein Contract im laufenden Agentenbetrieb eine praktikable Sicherheitsgrenze bilden kann. Der im Hauptprojekt entstehende Ausblick ist somit nicht nur ein Zusatz, sondern die Br\"ucke zur Masterarbeit: Er begr\"undet, welche L\"ucken des CLI-Scanners durch einen Proxy untersucht werden sollen.
+
+\section{Vorl\"aufiger Arbeitsplan und offene Punkte}\label{sec:plan}
+
+Das Arbeitsprogramm gliedert sich in mehrere Schritte. Zun\"achst werden Threat Model und relevante Literatur konsolidiert, um die betrachteten Angriffsklassen und die Abgrenzung zu bestehenden Scannern, Benchmarks und Laufzeit-Ans\"atzen zu sch\"arfen. Darauf aufbauend werden eine begrenzte Capability-Taxonomie und ein erstes Contract-Schema definiert. Diese Vorarbeit legt fest, welche F\"ahigkeiten im Hauptprojekt betrachtet werden und welche Informationen ein Contract enthalten muss, um sp\"ater von einem Proxy genutzt werden zu k\"onnen.
+
+Anschlie{\ss}end wird ein Prototyp entwickelt, der lokale MCP-Server anbindet, Tool-Metadaten und Schemas auswertet, statische Preflight-Signale analysiert und ausgew\"ahlte Live-Signale eines gestarteten Servers erfasst. Die Evaluation soll keine vollst\"andige Vermessung des MCP-\"Okosystems leisten, sondern reproduzierbar einsch\"atzen, welche Divergenzklassen statisch erkennbar sind, welche Live-Beobachtung ben\"otigen und welche erst durch einen sp\"ateren Laufzeit-Proxy adressierbar werden. Neben kontrollierten Testservern sollen, soweit verf\"ugbar, bestehende Benchmarks und Corpora wie MCPTox, MCP Security Bench, MCP Pitfall Lab oder MCP-Universe einbezogen werden.
+
+Bewusst offen bleibt, wie tief instrumentierte Live-Ausf\"uhrung bereits im Hauptprojekt enthalten sein muss und welche Rolle KI-Modelle bei der Ableitung erwarteter F\"ahigkeiten spielen k\"onnen, ohne selbst zur alleinigen Sicherheitsentscheidung zu werden. Zu kl\"aren ist au{\ss}erdem, wie reproduzierbar Live-Signale erfasst und wie False Positives im sp\"ateren Laufzeitbetrieb bewertet werden sollen. Diese offenen Punkte bilden die Br\"ucke zur Masterarbeit, in der der Contract in einem Laufzeit-Proxy durchgesetzt und gegen Drift, Rug-Pulls und Intent-Mismatches gepr\"uft werden soll.
+
+\backmatter
+
+\renewcommand{\refname}{Vorl\"aufiges Literaturverzeichnis}
+\renewcommand{\bibname}{Vorl\"aufiges Literaturverzeichnis}
+\begin{thebibliography}{12}
+
+\bibitem{hou2025mcp}
+Xinyi Hou, Yanjie Zhao, Shenao Wang, and Haoyu Wang.
+\newblock Model Context Protocol (MCP): Landscape, Security Threats, and Future Research Directions.
+\newblock arXiv preprint arXiv:2503.23278, 2025. \url{https://arxiv.org/abs/2503.23278}.
+
+\bibitem{firstglance2025}
+Mohammed Mehedi Hasan, Hao Li, Emad Fallahzadeh, Gopi Krishnan Rajbahadur, Bram Adams, and Ahmed E. Hassan.
+\newblock Model Context Protocol (MCP) at First Glance: Studying the Security and Maintainability of MCP Servers.
+\newblock arXiv preprint arXiv:2506.13538, 2025. \url{https://arxiv.org/abs/2506.13538}.
+
+\bibitem{mcptox2025}
+Zhiqiang Wang, Yichao Gao, Yanting Wang, Suyuan Liu, Haifeng Sun, Haoran Cheng, Guanquan Shi, Haohua Du, and Xiangyang Li.
+\newblock MCPTox: A Benchmark for Tool Poisoning Attack on Real-World MCP Servers.
+\newblock arXiv preprint arXiv:2508.14925, 2025. \url{https://arxiv.org/abs/2508.14925}.
+
+\bibitem{msb2025}
+Dongsen Zhang, Zekun Li, Xu Luo, Xuannan Liu, Peipei Li, and Wenjun Xu.
+\newblock MCP Security Bench (MSB): Benchmarking Attacks Against Model Context Protocol in LLM Agents.
+\newblock arXiv preprint arXiv:2510.15994, 2025. \url{https://arxiv.org/abs/2510.15994}.
+
+\bibitem{mcpitp2026}
+Ruiqi Li, Zhiqiang Wang, Yunhao Yao, and Xiang-Yang Li.
+\newblock MCP-ITP: An Automated Framework for Implicit Tool Poisoning in MCP.
+\newblock arXiv preprint arXiv:2601.07395, 2026. \url{https://arxiv.org/abs/2601.07395}.
+
+\bibitem{misleading2026}
+Zhihao Li, Boyang Ma, Xuelong Dai, Minghui Xu, Yue Zhang, Biwei Yan, and Kun Li.
+\newblock Don't believe everything you read: Understanding and Measuring MCP Behavior under Misleading Tool Descriptions.
+\newblock arXiv preprint arXiv:2602.03580, 2026. \url{https://arxiv.org/abs/2602.03580}.
+
+\bibitem{mcpaudit2026}
+Charoes Huang, Xin Huang, and Amin Milani Fard.
+\newblock Auditing MCP Servers for Over-Privileged Tool Capabilities.
+\newblock arXiv preprint arXiv:2603.21641, 2026. \url{https://arxiv.org/abs/2603.21641}.
+
+\bibitem{connor2026}
+Yiheng Huang, Zhijia Zhao, Bihuan Chen, Susheng Wu, Zhuotong Zhou, Yiheng Cao, Xin Hu, and Xin Peng.
+\newblock From Component Manipulation to System Compromise: Understanding and Detecting Malicious MCP Servers.
+\newblock arXiv preprint arXiv:2604.01905, 2026. \url{https://arxiv.org/abs/2604.01905}.
+
+\bibitem{viper2026}
+Pengyu Sun, Qishu Jin, Enhao Huang, Zifeng Kang, Xin Liu, Dakun Shen, and Song Li.
+\newblock VIPER-MCP: Detecting and Exploiting Taint-Style Vulnerabilities in Model Context Protocol Servers.
+\newblock arXiv preprint arXiv:2605.21392, 2026. \url{https://arxiv.org/abs/2605.21392}.
+
+\bibitem{pitfall2026}
+Run Hao and Zhuoran Tan.
+\newblock MCP Pitfall Lab: Exposing Developer Pitfalls in MCP Tool Server Security under Multi-Vector Attacks.
+\newblock arXiv preprint arXiv:2604.21477, 2026. \url{https://arxiv.org/abs/2604.21477}.
+
+\bibitem{mcpguardian2025}
+Sonu Kumar, Anubhav Girdhar, Ritesh Patil, and Divyansh Tripathi.
+\newblock MCP Guardian: A Security-First Layer for Safeguarding MCP-Based AI System.
+\newblock arXiv preprint arXiv:2504.12757, 2025. \url{https://arxiv.org/abs/2504.12757}.
+
+\bibitem{miniscope2025}
+Jinhao Zhu, Kevin Tseng, Gil Vernik, Xiao Huang, Shishir G. Patil, Vivian Fang, and Raluca Ada Popa.
+\newblock MiniScope: A Least-Privilege Framework for Authorizing Tool-Calling Agents.
+\newblock arXiv preprint arXiv:2512.11147, 2025. \url{https://arxiv.org/abs/2512.11147}.
+
+\end{thebibliography}
+
+\end{document}

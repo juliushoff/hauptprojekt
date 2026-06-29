@@ -1,0 +1,23 @@
+{
+  "name": "masterarbeit-viewer",
+  "private": true,
+  "portless": {
+    "name": "hauptprojekt.viewer",
+    "script": "dev:app"
+  },
+  "dependencies": {
+    "next": "16.1.6",
+    "pdfjs-dist": "4.10.38",
+    "portless": "^0.14.0",
+    "react": "19.2.3",
+    "react-dom": "19.2.3"
+  },
+  "scripts": {
+    "dev": "portless",
+    "dev:app": "next dev --webpack",
+    "build": "next build --webpack",
+    "start": "next start -p 8080",
+    "create-doc": "node scripts/create-doc.mjs",
+    "watch-doc": "node scripts/watch-doc.mjs"
+  }
+}

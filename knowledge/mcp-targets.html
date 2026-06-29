@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MCP Target Sets - MCP Security KB</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="top"><div class="inner">
+  <span class="brand">MCP Security KB</span>
+  <a href="index.html">Overview</a>
+  <a href="threat-model.html">Threat Model</a>
+  <a href="attack-vectors.html">Attack Vectors</a>
+  <a href="defenses.html">Defenses</a>
+  <a href="benchmarks-and-tools.html">Benchmarks &amp; Tools</a>
+  <a href="mcp-targets.html" class="active">MCP Targets</a>
+  <a href="gap-analysis.html">Gap Analysis</a>
+  <a href="design-and-scope.html">Design &amp; Scope</a>
+  <a href="build-plan.html">Build Plan</a>
+  <a href="positioning-update.html">Positioning Update</a>
+</div></header>
+
+<div class="wrap">
+
+<h1>MCP Target Sets for Scanner Evaluation</h1>
+<p class="lede">Working list of MCP servers and benchmark groups we can use for the contract-derived sandbox scanner. This page focuses on practical setup difficulty, not only paper relevance.</p>
+
+<div class="note ok">
+  <span class="t">Current recommendation</span>
+  Use <strong>Connor</strong> as the first malicious benchmark because it ships runnable MCP server directories and configs. Use the easy subset of <strong>Connor benign</strong> and later <strong>MCP-Bench</strong> as benign/utility controls. Treat <strong>MSB</strong> as a later agent-attack benchmark, not as the first scanner target set.
+</div>
+
+<h2>Evaluation ladder</h2>
+<table>
+<thead><tr><th>Stage</th><th>Sample size</th><th>Target mix</th><th>Why this size</th></tr></thead>
+<tbody>
+<tr>
+  <td><strong>Smoke</strong></td>
+  <td>8-10 MCPs</td>
+  <td>4-5 Connor malicious + 4-5 easy benign servers</td>
+  <td>Validates Docker startup, MCP handshake, contract generation, trace capture, and verdict output.</td>
+</tr>
+<tr>
+  <td><strong>First presentation</strong></td>
+  <td>20-25 MCPs</td>
+  <td>10-15 Connor malicious + 10 easy benign</td>
+  <td>Enough for early detection-rate and false-positive discussion without spending the whole project on dataset plumbing.</td>
+</tr>
+<tr>
+  <td><strong>Good Hauptprojekt result</strong></td>
+  <td>40-60 MCPs</td>
+  <td>20-30 malicious + 20-30 benign</td>
+  <td>Credible scope for a 4-week implementation/writeup cycle if the harness is stable.</td>
+</tr>
+<tr>
+  <td><strong>Stretch</strong></td>
+  <td>100+ MCPs</td>
+  <td>Connor PoCs + Connor benign + MCP-Bench no-key servers</td>
+  <td>Useful later, but only after setup failure handling, timeouts, and report generation are reliable.</td>
+</tr>
+</tbody>
+</table>
+
+<h2>Benchmark groups</h2>
+<table>
+<thead><tr><th>Benchmark</th><th>Scale</th><th>Useful for us?</th><th>Setup read</th></tr></thead>
+<tbody>
+<tr>
+  <td><strong>Connor</strong><br><span class="id"><a href="https://arxiv.org/abs/2604.01905">arXiv:2604.01905</a> - <a href="https://github.com/yiheng98/Connor">GitHub</a></span></td>
+  <td>114 PoCs + 20 curated malicious samples + 129 benign samples in released repo.</td>
+  <td><strong>Primary malicious target set.</strong> Directly aligned with behavioral deviation and sandbox scanning.</td>
+  <td><span class="tag static">easy</span> Directories include <code>mcp.json</code>, <code>pyproject.toml</code>, and Python/uv startup commands. Needs Python &gt;=3.13 and <code>uv</code>.</td>
+</tr>
+<tr>
+  <td><strong>MSB</strong><br><span class="id"><a href="https://arxiv.org/abs/2510.15994">arXiv:2510.15994</a> - <a href="https://github.com/dongsenzhang/MSB">GitHub</a></span></td>
+  <td>12 attack types, 10 domains, 400+ tools, 2000+ attack instances.</td>
+  <td><strong>Secondary.</strong> Better for model/agent robustness and NRP-style evaluation than for first scanner target list.</td>
+  <td><span class="tag both">medium</span> Has its own harness, LangChain setup, attack tools, and task files. Integrating it means adapting their harness or using it as comparison.</td>
+</tr>
+<tr>
+  <td><strong>MCP-Bench</strong><br><span class="id"><a href="https://arxiv.org/abs/2508.20453">arXiv:2508.20453</a> - <a href="https://github.com/Accenture/mcp-bench">GitHub</a></span></td>
+  <td>28 real MCP servers, around 250 tools, 56 single-server tasks, 30 two-server tasks, 18 three-server tasks.</td>
+  <td><strong>Good benign/utility pool.</strong> Especially useful for checking whether contracts over-block useful behavior.</td>
+  <td><span class="tag both">medium</span> 23 of 28 listed commands require no benchmark API key. 5 require keys: Google Maps, BioMCP, Hugging Face, National Parks, NASA.</td>
+</tr>
+<tr>
+  <td><strong>MCPSecBench</strong><br><span class="id"><a href="https://arxiv.org/abs/2508.13220">arXiv:2508.13220</a></span></td>
+  <td>17 attack types across 4 attack surfaces; prompt datasets, MCP servers, MCP clients, attack scripts.</td>
+  <td>Good taxonomy/reference. Less immediately usable until code/data availability is confirmed.</td>
+  <td><span class="tag phase">unknown</span> Public search found the paper, but no clearly indexed repo during this pass.</td>
+</tr>
+<tr>
+  <td><strong>MCPTox</strong><br><span class="id"><a href="https://arxiv.org/abs/2508.14925">arXiv:2508.14925</a></span></td>
+  <td>45 live servers, 353 real tools, 1312 malicious tool-poisoning cases.</td>
+  <td>Useful for metadata/tool-poisoning checks. Less aligned with sandbox behavior because the attack is mostly in tool metadata.</td>
+  <td><span class="tag phase">medium/unknown</span> Paper points to an anonymized release link; verify accessibility before planning around it.</td>
+</tr>
+<tr>
+  <td><strong>MCP-SafetyBench</strong><br><span class="id"><a href="https://arxiv.org/abs/2512.15163">arXiv:2512.15163</a></span></td>
+  <td>Real MCP servers across browser automation, financial analysis, location navigation, repository management, and web search; 20 attack types.</td>
+  <td>Relevant for the Masterarbeit/live proxy because it stresses multi-turn and cross-server safety.</td>
+  <td><span class="tag phase">unknown</span> Public search found the paper, but no clearly indexed repo during this pass.</td>
+</tr>
+<tr>
+  <td><strong>MCP-Universe</strong><br><span class="id"><a href="https://arxiv.org/abs/2508.14704">arXiv:2508.14704</a></span></td>
+  <td>6 domains, 11 real MCP servers.</td>
+  <td>Utility benchmark, not malicious detection. Useful later for "does the proxy break normal tasks?"</td>
+  <td><span class="tag both">medium</span> Real-world tasks and UI support; more work than Connor for first milestone.</td>
+</tr>
+<tr>
+  <td><strong>MCPToolBench++</strong><br><span class="id"><a href="https://arxiv.org/abs/2508.07575">arXiv:2508.07575</a></span></td>
+  <td>Large-scale benchmark built from 4000+ marketplace MCP servers across 40+ categories.</td>
+  <td>Interesting for scale, but too broad for the first Hauptprojekt implementation.</td>
+  <td><span class="tag phase">large</span> Treat as later inspiration for crawling/marketplace scale, not a near-term target.</td>
+</tr>
+</tbody>
+</table>
+
+<h2>Connor target set</h2>
+<p>Connor is the strongest starting point because the released repo contains MCP server directories with <code>mcp.json</code> startup configs. The detector itself also uses Docker, and the repo explicitly warns that the PoCs may have side effects.</p>
+
+<h3>Connor PoCs</h3>
+<p>The repo has 114 PoCs: 6 attack-goal directories times 19 influence paths. Each PoC directory contains <code>mcp.json</code> and <code>pyproject.toml</code>.</p>
+<pre><code>backdoor_PoC/p1-p19
+payload_exec_PoC/p1-p19
+ransomeware_PoC/p1-p19
+reverse_shell_PoC/p1-p19
+sabotaging_PoC/p1-p19
+stealing_PoC/p1-p19</code></pre>
+
+<div class="note warn">
+  <span class="t">Safety note</span>
+  The payload execution, reverse shell, ransomware, and backdoor groups should only run inside the remote Docker sandbox with no real secrets, no host mounts, no Docker socket, resource limits, and network disabled or routed through a logging proxy.
+</div>
+
+<h3>Connor curated malicious samples</h3>
+<p>These 20 are easier than the full PoC grid because they are direct dataset samples with simple Python/uv structure.</p>
+<pre><code>ETHPriceCurrentServer
+MCPSecBench
+Poisonattack1
+Poisonattack2
+Poisonattack3
+challenge1
+challenge2
+challenge3
+challenge4
+challenge5
+challenge6
+challenge7
+challenge8
+challenge9
+challenge10
+namespace
+tool_poisoning
+weather_attack1
+weather_attack2
+weather_attack3</code></pre>
+
+<h3>Connor benign samples</h3>
+<p>The released benign zip contains 129 top-level server directories under the typoed path <code>bengin_servers/</code>. Many are cloned public MCP projects. For the first benchmark, prioritize small, credential-free, uv/Python servers.</p>
+
+<h4>Recommended easy benign starter list</h4>
+<table>
+<thead><tr><th>Connor benign dir</th><th>Why useful</th><th>Expected setup</th></tr></thead>
+<tbody>
+<tr><td><code>time</code></td><td>Simple utility, low-risk baseline.</td><td><code>uv --directory /app/time/Time-MCP run time_mcp_server.py</code></td></tr>
+<tr><td><code>sequential-thinking</code></td><td>Reasoning-only-ish server, good non-IO control.</td><td><code>uv --directory ... run main.py</code></td></tr>
+<tr><td><code>math_calculator_server</code></td><td>Pure computation baseline.</td><td><code>uv --directory ... run python server.py</code></td></tr>
+<tr><td><code>json_handler_server</code></td><td>Structured data operations.</td><td><code>uv --directory ... run python server.py</code></td></tr>
+<tr><td><code>text_processor_server</code></td><td>Text transformation baseline.</td><td><code>uv --directory ... run python server.py</code></td></tr>
+<tr><td><code>file_utils_server</code></td><td>Legitimate filesystem access. Good for false-positive testing.</td><td><code>uv --directory ... run python server.py</code></td></tr>
+<tr><td><code>system_info_server</code></td><td>Legitimate system inspection. Good boundary case.</td><td><code>uv --directory ... run python server.py</code></td></tr>
+<tr><td><code>todo</code></td><td>Stateful but small.</td><td><code>uv run --with mcp[cli] mcp run /app/todo/todo-mcp-server/server.py</code></td></tr>
+<tr><td><code>wikipedia</code></td><td>Network/search-like benign behavior.</td><td><code>uv --directory /app/wikipedia/Wikipedia run python main.py</code></td></tr>
+<tr><td><code>weights-and-measures</code></td><td>Local conversion/data server.</td><td>Likely Python/uv, verify before first run.</td></tr>
+</tbody>
+</table>
+
+<h4>Full Connor benign top-level list</h4>
+<pre><code>BedrockGuardrailsMCP
+Bilibili_Search_bilibili
+Biomart
+Biomart_Biomart
+Biomart_MCP_Biomart
+Bonsai-mcp
+Books_Mcp_Server_books-mcp-server
+Brazilian_Legal_Precedents_brlaw_mcp_server
+BugcrowdMCP
+Claude_Conversations_to_Markdown_record-to-apple-notes
+Coding_Standards_MCP_Server_nortal_coding_standards
+Coding_Standards_nortal_coding_standards
+Crypto RSS Reader
+Crypto_RSS_MCP_Crypto RSS Reader
+Custom MCP Server
+FFmpeg_Video_Manipulation_ffmpeg-mcp
+Illustrator_MCP_Server_illustrator
+Image_Processor_image
+Jij_Mathematical_and_Quantum_Computing_Platform_jij
+Kubernetes
+Kubernetes_Kubernetes
+Kubernetes_Pilot_k8s_pilot
+MCP_Weather_Server_open_meteo_weather
+Modal_Serverless_Python_mcp-server-modal
+Molecule Visualizer
+Music_Analysis
+NS_Lookup_MCP_Server_nslookup
+NmapMCP
+Nuanced_nuanced
+Obsidian_Omnisearch_obsidian-omnisearch
+Pylpex
+QuickBooks
+Story_Protocol_storyscan-mcp
+Tecton_MCP_Server_Cursor_Rules_tecton
+Tecton_tecton
+UniProt_MCP_Server_uniprot
+XSS tester
+YogoshaMCP
+adb
+apstra
+aptos-dev
+aptos-mcp-server_aptos-dev
+bilibili
+book-fetcher
+book-fetcher-copy
+books-mcp-server
+brlaw_mcp_server
+browser-use
+china-stock-mcp
+code_analyzer_server
+data_processor_server
+dataset-viewer
+dataset-viewer_dataset-viewer
+e_gonghun_mcp
+fedramp-20x
+ffmpeg-mcp
+file-summarizer
+file_utils_server
+forensics ssh mcp
+gaggiuino
+git_helper_server
+github_server
+glean
+hiking
+ikb-mcp-server
+illustrator
+illustrator-mcp-server_illustrator
+image
+jij
+json_handler_server
+k8s
+k8s-pilot_k8s_pilot
+k8s_pilot
+kusto
+lol-client-mcp
+lol-client-mcp_lol-client-mcp
+math_calculator_server
+mcp-allure-server
+mcp-fredap_mcp-fredapi
+mcp-fredapi
+mcp-github-trending
+mcp-images_image
+mcp-qqmusic-test-server
+mcp-server
+mcp-server-minecraft-mod-devdoc
+mcp-server-minecraft-mod-devdoc_mcp-server-minecraft-mod-devdoc
+mcp-server-modal
+mcp-standards
+mcp-tool-builder_tool-builder
+mcp-variance-log
+mcp-wikipedia_wikipedia
+mcp2lambda
+mcp_weather
+myanimelist
+myanimelist-mcp-server_myanimelist
+network_utils_server
+nortal_coding_standards
+nslookup
+nuanced
+obsidian-omnisearch
+open_meteo_weather
+openmeteo-weather-mcp_open_meteo_weather
+openregister
+pdf-tools
+pdf2png
+powerpoint-automation
+precipitation
+python-mcp-server-client_mcp-server
+record-to-apple-notes
+runbook
+saptools
+sequential-thinking
+spencerhhubert_illustrator-mcp-server_illustrator
+storyscan-mcp
+system_info_server
+tecton
+text_processor_server
+time
+tku-mcp
+todo
+todo-mcp
+toio-mcp
+tool-builder
+tpm
+uniprot
+uniprot-mcp-server_uniprot
+weather
+weights-and-measures
+wikipedia
+world_bank</code></pre>
+
+<h2>MCP-Bench server pool</h2>
+<p>MCP-Bench is a better benign/utility benchmark than a malicious benchmark. It includes 28 real MCP servers and a ready command map. It also gives task files for single-server and multi-server workflows.</p>
+
+<h3>No-key candidates</h3>
+<pre><code>OpenAPI Explorer
+Unit Converter
+Wikipedia
+Bibliomantic
+Call for Papers
+Car Price Evaluator
+Context7
+DEX Paprika
+FruityVice
+Game Trends
+Huge Icons
+Math MCP
+NixOS
+OSINT Intelligence
+Reddit
+Medical Calculator
+Metropolitan Museum
+Movie Recommender
+OKX Exchange
+Paper Search
+Scientific Computing
+Weather Data
+Time MCP</code></pre>
+
+<h3>Requires benchmark/API key</h3>
+<pre><code>Google Maps - GOOGLE_MAPS_API_KEY
+BioMCP - NCI_API_KEY
+Hugging Face - HF_TOKEN
+National Parks - NPS_API_KEY
+NASA Data - NASA_API_KEY</code></pre>
+
+<h3>MCP-Bench task files</h3>
+<table>
+<thead><tr><th>File</th><th>Task count observed</th><th>Use</th></tr></thead>
+<tbody>
+<tr><td><code>mcpbench_tasks_single_runner_format.json</code></td><td>56</td><td>Good for single-MCP utility and contract false-positive tests.</td></tr>
+<tr><td><code>mcpbench_tasks_multi_2server_runner_format.json</code></td><td>30</td><td>Useful later for cross-server contract/proxy behavior.</td></tr>
+<tr><td><code>mcpbench_tasks_multi_3server_runner_format.json</code></td><td>18</td><td>Masterarbeit stretch target, not first scanner milestone.</td></tr>
+</tbody>
+</table>
+
+<h2>MSB target structure</h2>
+<p>MSB is an end-to-end agent attack benchmark. It has normal/support tools plus one attack-tools package and task definitions. It is valuable, but less directly shaped like "run one MCP server and classify it."</p>
+
+<h3>Attack types</h3>
+<pre><code>prompt_injection
+false_error
+name_overlap
+preference_manipulation
+simulated_user
+out_of_scope_parameter
+search_term_deception
+tool_transfer
+preference_manipulation-out_of_scope_parameter
+preference_manipulation-simulated_user
+prompt_injection-simulated_user
+prompt_injection-false_error</code></pre>
+
+<h3>Normal tools listed in repo</h3>
+<pre><code>Bright_Data
+Clear_Thought_Server
+ClickUp_MCP_Server
+Cloudflare_Playwright
+Context7
+DuckDuckGo_Search_Server
+Exa_Search
+Flux_ImageGen_Server
+Github
+Hotel_Booking_Server
+Knowledge_Graph_Memory_Server
+Linear
+Memory_Tool
+Met_Museum_Server
+National_Parks_Information_Server
+Notion
+Office_Word_Document_Server
+Paper_Search
+PubMed_MCP_Server
+Sequential_Thinking_Tools
+Supabase_MCP_Server
+Terminal_Controller
+Think_Tool_Server
+Time_MCP_Server
+Todoist_Integration</code></pre>
+
+<p>Support tools observed: <code>Desktop_Commander</code> and <code>Filesystem_MCP_Server</code>. Attack-tool domains observed in the repo: academic search, image generation, information gathering, IT/development management, LLM enhancement, and office assistance.</p>
+
+<h2>Recommended first benchmark file</h2>
+<p>For the first real run, create a target file with these 20 samples:</p>
+
+<h3>10 malicious</h3>
+<pre><code>Dataset/Malicious/Poisonattack1
+Dataset/Malicious/Poisonattack2
+Dataset/Malicious/Poisonattack3
+Dataset/Malicious/tool_poisoning
+Dataset/Malicious/namespace
+Dataset/Malicious/weather_attack1
+Dataset/Malicious/weather_attack2
+Dataset/Malicious/weather_attack3
+Dataset/Malicious/challenge1
+Dataset/Malicious/challenge2</code></pre>
+
+<h3>10 benign</h3>
+<pre><code>Dataset/Benign/bengin_servers/time
+Dataset/Benign/bengin_servers/sequential-thinking
+Dataset/Benign/bengin_servers/math_calculator_server
+Dataset/Benign/bengin_servers/json_handler_server
+Dataset/Benign/bengin_servers/text_processor_server
+Dataset/Benign/bengin_servers/file_utils_server
+Dataset/Benign/bengin_servers/system_info_server
+Dataset/Benign/bengin_servers/todo
+Dataset/Benign/bengin_servers/wikipedia
+Dataset/Benign/bengin_servers/weights-and-measures</code></pre>
+
+<div class="note">
+  <span class="t">Why this set</span>
+  It balances malicious metadata attacks, hidden behavior, weather/API-looking attacks, local computation, file access, system-info access, stateful todo behavior, and benign network/search behavior. It is also mostly Python/uv, which keeps the first harness implementation narrow.
+</div>
+
+<h2>Notes for implementation</h2>
+<ul>
+  <li>Normalize every target into one internal schema: <code>id</code>, <code>source</code>, <code>path</code>, <code>command</code>, <code>args</code>, <code>transport</code>, <code>label</code>, <code>expected_setup</code>.</li>
+  <li>Connor configs use <code>/app/...</code> paths. The Docker runner should mount/copy each target directory to <code>/app/&lt;target&gt;</code> or rewrite paths before launch.</li>
+  <li>Python 3.13 support matters for Connor. Use a sandbox image with <code>uv</code> and Python 3.13 available.</li>
+  <li>Treat setup failure as a result category, not as a crash: <code>setup_failed</code>, <code>handshake_failed</code>, <code>timeout</code>, <code>needs_credentials</code>.</li>
+  <li>For samples that legitimately require network, run a second mode with controlled egress logging. Default runtime should be network disabled.</li>
+</ul>
+
+<footer class="foot">
+  Last updated 2026-06-25. Repo inspection was done from shallow/sparse clones under <code>/private/tmp</code>: Connor, MSB, and MCP-Bench. Always verify exact counts and setup scripts against the upstream repos before citing final numbers.
+</footer>
+
+</div>
+</body>
+</html>

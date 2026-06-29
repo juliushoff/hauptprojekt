@@ -1,0 +1,13 @@
+# Copy or clone Connor onto the remote scan machine, then adapt paths/commands to the sandbox mount.
+# Recommended first 10 malicious from knowledge/mcp-targets.html:
+# Dataset/Malicious/Poisonattack1
+# Dataset/Malicious/Poisonattack2
+# Dataset/Malicious/Poisonattack3
+# Dataset/Malicious/tool_poisoning
+# Dataset/Malicious/namespace
+# Dataset/Malicious/weather_attack1
+# Dataset/Malicious/weather_attack2
+# Dataset/Malicious/weather_attack3
+# Dataset/Malicious/challenge1
+# Dataset/Malicious/challenge2
+# Recommended benign controls are from Connor's Dataset/Benign/bengin_servers zip.

@@ -1,0 +1,1 @@
+{"id":"local_echo","source":"local","label":"benign","transport":"stdio","command":"python3","args":["scanner/examples/local_echo/server.py"],"timeout_seconds":5,"notes":"Harmless local stdio MCP-compatible smoke server."}
